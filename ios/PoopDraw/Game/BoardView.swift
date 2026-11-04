@@ -117,6 +117,9 @@ final class BoardView: UIView {
         renderChanges()
         onReady?()
         onReady = nil
+        if Int(builtSize.width.rounded()) != widthPoints || Int(builtSize.height.rounded()) != heightPoints {
+            buildPile()
+        }
     }
 
     private func rebuildTiles(for field: HeightField) {
@@ -181,7 +184,7 @@ final class BoardView: UIView {
 
     func snapshot() -> UIImage? {
         guard let field else { return nil }
-        _ = field.flush()
+        renderChanges()
         guard let image = Self.makeImage(field.rgba(in: field.fullRect), width: field.width, height: field.height) else {
             return nil
         }
