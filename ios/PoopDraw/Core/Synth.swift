@@ -65,12 +65,29 @@ enum Synth {
     }
 }
 
-enum SoundPick {
-    /// A random index that differs from the last one played, whenever there is a choice.
-    static func next(count: Int, avoiding last: Int?) -> Int {
-        guard count > 1 else { return 0 }
-        guard let last else { return Int.random(in: 0..<count) }
-        let pick = Int.random(in: 0..<(count - 1))
-        return pick >= last ? pick + 1 : pick
+/// Deals sounds like a shuffled deck: none comes back until all the others have played.
+struct SoundBag {
+    private let count: Int
+    private var remaining: [Int] = []
+    private var last: Int?
+
+    init(count: Int) {
+        self.count = count
+    }
+
+    mutating func next() -> Int? {
+        guard count > 0 else { return nil }
+        if remaining.isEmpty { refill() }
+        let pick = remaining.removeLast()
+        last = pick
+        return pick
+    }
+
+    /// The deck is dealt from its end, so the end must not repeat the sound that just finished a round.
+    private mutating func refill() {
+        remaining = Array(0..<count).shuffled()
+        if count > 1, remaining.last == last {
+            remaining.swapAt(0, count - 1)
+        }
     }
 }

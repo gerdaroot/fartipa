@@ -143,14 +143,29 @@ final class SynthTests: XCTestCase {
         }
     }
 
-    func testRandomPickNeverRepeatsImmediately() {
-        var last: Int? = nil
-        for _ in 0..<500 {
-            let next = SoundPick.next(count: 6, avoiding: last)
-            XCTAssertTrue((0..<6).contains(next))
+    func testEveryRoundPlaysEverySoundOnce() {
+        var bag = SoundBag(count: 6)
+        for _ in 0..<200 {
+            let round = (0..<6).compactMap { _ in bag.next() }
+            XCTAssertEqual(round.sorted(), [0, 1, 2, 3, 4, 5])
+        }
+    }
+
+    func testSoundNeverRepeatsAcrossRounds() {
+        var bag = SoundBag(count: 6)
+        var last = bag.next()
+        for _ in 0..<3000 {
+            let next = bag.next()
             XCTAssertNotEqual(next, last)
             last = next
         }
-        XCTAssertEqual(SoundPick.next(count: 1, avoiding: 0), 0)
+    }
+
+    func testBagHandlesTinySets() {
+        var empty = SoundBag(count: 0)
+        XCTAssertNil(empty.next())
+        var single = SoundBag(count: 1)
+        XCTAssertEqual(single.next(), 0)
+        XCTAssertEqual(single.next(), 0)
     }
 }

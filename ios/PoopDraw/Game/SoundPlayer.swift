@@ -3,14 +3,14 @@ import AVFoundation
 /// Plays the fart recordings and the synthesised effects. Everything stays silent while muted.
 final class SoundPlayer {
     private static let farts = ["perdezh-40", "perdezh-puk-puk", "farts-42", "farts-8", "farts-4", "long-fart"]
-    private static let longFart = "long-fart"
 
     private let engine = AVAudioEngine()
     private let effects = AVAudioPlayerNode()
     private var plopBuffer: AVAudioPCMBuffer?
     private var fanfareBuffer: AVAudioPCMBuffer?
     private var fartPlayers: [String: AVAudioPlayer] = [:]
-    private var lastFart: Int?
+    private var loadedFarts: [String] = []
+    private var fartBag = SoundBag(count: 0)
     private var observers: [NSObjectProtocol] = []
 
     // Read on the audio thread, written here. Raw memory keeps the render callback free of runtime checks.
@@ -47,16 +47,10 @@ final class SoundPlayer {
 
     // MARK: - Playing
 
-    func playRandomFart() {
-        guard !isMuted, !Self.farts.isEmpty else { return }
-        let index = SoundPick.next(count: Self.farts.count, avoiding: lastFart)
-        lastFart = index
-        play(fart: Self.farts[index])
-    }
-
-    func playLongFart() {
-        guard !isMuted else { return }
-        play(fart: Self.longFart)
+    /// Plays the next recording from the bag, so a sound repeats only after all the others played.
+    func playNextFart() {
+        guard !isMuted, let index = fartBag.next() else { return }
+        play(fart: loadedFarts[index])
     }
 
     func playPlop() {
@@ -118,7 +112,9 @@ final class SoundPlayer {
             else { continue }
             player.prepareToPlay()
             fartPlayers[name] = player
+            loadedFarts.append(name)
         }
+        fartBag = SoundBag(count: loadedFarts.count)
     }
 
     private func configureEngine() {

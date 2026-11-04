@@ -191,6 +191,19 @@ final class BoardView: UIView {
         return UIImage(cgImage: image, scale: CGFloat(Self.fieldScale), orientation: .up)
     }
 
+    #if DEBUG
+    /// Presses a line without a finger, for the screenshots CI takes.
+    func carveDemoLine(_ points: [CGPoint], radius: CGFloat) {
+        for (from, to) in zip(points, points.dropFirst()) {
+            field?.carve(
+                fromX: Float(from.x), fromY: Float(from.y),
+                toX: Float(to.x), toY: Float(to.y),
+                radius: Float(radius)
+            )
+        }
+    }
+    #endif
+
     // MARK: - Frame
 
     @objc private func tick(_ link: CADisplayLink) {

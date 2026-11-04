@@ -40,3 +40,37 @@ jobs:
         with:
           name: PoopDraw-ipa
           path: PoopDraw.ipa
+
+  screenshots:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Build for the simulator
+        run: |
+          xcodebuild build \
+            -project PoopDraw.xcodeproj \
+            -scheme PoopDraw \
+            -configuration Debug \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Take screenshots
+        run: |
+          bash scripts/simulator-screenshots.sh \
+            build/Build/Products/Debug-iphonesimulator/PoopDraw.app \
+            "$RUNNER_TEMP/screens"
+      - name: Publish screenshots to their own branch
+        env:
+          PUSH_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}
+        run: |
+          cd "$RUNNER_TEMP/screens"
+          git init -q -b screenshots
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "chore: screenshots for ${GITHUB_SHA}"
+          git push -f "$PUSH_URL" screenshots

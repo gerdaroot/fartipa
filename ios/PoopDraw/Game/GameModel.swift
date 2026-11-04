@@ -43,6 +43,8 @@ final class GameModel: ObservableObject {
     private var hapticDistance: CGFloat = 0
 
     var currentFigure: Figure { Figure.all[levelIndex] }
+    var totalStars: Int { progress.values.reduce(0, +) }
+    var maxStars: Int { Figure.all.count * 3 }
     var hasNextLevel: Bool { levelIndex + 1 < Figure.all.count }
     var canOpenNextLevel: Bool { hasNextLevel && Progress.isUnlocked(progress, index: levelIndex + 1) }
 
@@ -55,7 +57,13 @@ final class GameModel: ObservableObject {
     }
 
     private func wireBoard() {
-        board.onReady = { [weak self] in self?.isReady = true }
+        board.onReady = { [weak self] in
+            guard let self else { return }
+            self.isReady = true
+            #if DEBUG
+            self.applyDemoArgument()
+            #endif
+        }
         board.onTouchBegan = { [weak self] in
             guard let self else { return }
             self.sound.ensureEngineRunning()
@@ -122,7 +130,7 @@ final class GameModel: ObservableObject {
         defaults.set(Progress.encode(progress), forKey: Key.progress)
         result = outcome
         board.tool = .none
-        if outcome.stars == 0 { sound.playLongFart() }
+        if outcome.stars == 0 { sound.playNextFart() }
         if outcome.stars == 3 { sound.playFanfare() }
         haptic.impactOccurred()
         screen = .result
@@ -148,11 +156,11 @@ final class GameModel: ObservableObject {
     func newPile() {
         board.showsTitle = false
         board.buildPile()
-        sound.playRandomFart()
+        sound.playNextFart()
     }
 
     func fart() {
-        sound.playRandomFart()
+        sound.playNextFart()
         haptic.impactOccurred()
     }
 
@@ -196,7 +204,7 @@ final class GameModel: ObservableObject {
             strokes.append(stroke)
         }
         if screen == .free, Double.random(in: 0..<1) < Self.idleFartChance {
-            sound.playRandomFart()
+            sound.playNextFart()
         }
     }
 
@@ -206,10 +214,50 @@ final class GameModel: ObservableObject {
     }
 
     private func refreshGuide() {
-        let box = board.figureBox
-        let points = targets.map { CGPoint(x: box.minX + CGFloat($0.x) * box.width, y: box.minY + CGFloat($0.y) * box.height) }
-        board.showGuide(targets: points, covered: covered)
+        board.showGuide(targets: targets.map { screenPoint($0) }, covered: covered)
     }
+
+    private func screenPoint(_ point: Point) -> CGPoint {
+        let box = board.figureBox
+        return CGPoint(x: box.minX + CGFloat(point.x) * box.width, y: box.minY + CGFloat(point.y) * box.height)
+    }
+
+    #if DEBUG
+    /// Opens one screen with sample content so CI can photograph it: `--demo=levels`.
+    private func applyDemoArgument() {
+        guard let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--demo=") }) else { return }
+        sound.isMuted = true
+        progress = ["smile": 3, "heart": 2, "house": 1]
+        switch argument.dropFirst("--demo=".count) {
+        case "levels":
+            goToLevels()
+        case "free":
+            startFreeDrawing()
+            let wave = (0..<36).map { CGPoint(x: 30 + CGFloat($0) * 9, y: 300 + sin(CGFloat($0) / 3) * 34) }
+            board.carveDemoLine(wave, radius: fingerRadius)
+        case "trace":
+            demoTrace(pathCount: 2)
+        case "result":
+            demoTrace(pathCount: Figure.all[0].paths.count)
+            finishLevel()
+        default:
+            break
+        }
+    }
+
+    private func demoTrace(pathCount: Int) {
+        startLevel(0)
+        for path in currentFigure.paths.prefix(pathCount) {
+            let points = path.map { screenPoint($0) }
+            board.carveDemoLine(points, radius: Self.traceRadius)
+            let id = ObjectIdentifier(NSObject())
+            for (from, to) in zip(points, points.dropFirst()) {
+                fingerMoved(id: id, from: from, to: to)
+            }
+            fingerLifted(id: id)
+        }
+    }
+    #endif
 }
 
 struct ShareImage: Identifiable {
