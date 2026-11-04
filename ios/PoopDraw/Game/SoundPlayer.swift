@@ -2,7 +2,11 @@ import AVFoundation
 
 /// Plays the fart recordings and the synthesised effects. Everything stays silent while muted.
 final class SoundPlayer {
-    private static let farts = ["perdezh-40", "perdezh-puk-puk", "farts-42", "farts-8", "farts-4", "long-fart"]
+    private static let farts = [
+        "perdezh-40.mp3", "perdezh-puk-puk.mp3", "farts-42.mp3", "farts-8.mp3", "farts-4.mp3", "long-fart.mp3",
+        "hard-01.m4a", "hard-02.m4a", "hard-03.m4a", "hard-04.m4a", "hard-05.m4a",
+        "hard-06.m4a", "hard-07.m4a", "hard-08.m4a", "hard-09.m4a", "hard-10.m4a",
+    ]
 
     private let engine = AVAudioEngine()
     private let effects = AVAudioPlayerNode()
@@ -107,7 +111,7 @@ final class SoundPlayer {
     private func loadFarts() {
         for name in Self.farts {
             guard
-                let url = Bundle.main.url(forResource: name, withExtension: "mp3"),
+                let url = Bundle.main.url(forResource: name, withExtension: nil),
                 let player = try? AVAudioPlayer(contentsOf: url)
             else { continue }
             player.prepareToPlay()

@@ -14,7 +14,7 @@ jobs:
         run: swift test
       - name: Check that iOS audio can decode every sound
         run: |
-          for file in ios/PoopDraw/Sounds/*.mp3; do
+          for file in ios/PoopDraw/Sounds/*; do
             afconvert -f caff -d LEI16 "$file" "$RUNNER_TEMP/check.caf"
             afinfo "$RUNNER_TEMP/check.caf" | grep "estimated duration"
           done
@@ -35,6 +35,7 @@ jobs:
           mkdir Payload
           cp -R build/Build/Products/Release-iphoneos/PoopDraw.app Payload/
           test -f Payload/PoopDraw.app/long-fart.mp3
+          test -f Payload/PoopDraw.app/hard-10.m4a
           zip -qr PoopDraw.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
