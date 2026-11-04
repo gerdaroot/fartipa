@@ -30,6 +30,7 @@ struct FreeDrawingScreen: View {
                         colors: [Palette.goldTop, Palette.goldBottom], startPoint: .top, endPoint: .bottom
                     )))
                     .background(Circle().fill(Palette.goldEdge).offset(y: 5))
+                    .compositingGroup()
                     .shadow(color: .black.opacity(0.45), radius: 7, x: 0, y: 6)
                 }
                 .buttonStyle(PressScaleStyle())
@@ -178,8 +179,8 @@ struct ResultScreen: View {
                 }
             }
             HStack(spacing: 18) {
-                Button("К фигурам", action: model.goToLevels)
-                Button("Сохранить картину", action: model.shareDrawing)
+                Button(action: model.goToLevels) { Text("К фигурам").fixedSize() }
+                Button(action: model.shareDrawing) { Text("Сохранить картину").fixedSize() }
             }
             .font(GameFont.label(14))
             .foregroundStyle(Palette.cream)

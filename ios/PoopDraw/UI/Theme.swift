@@ -50,6 +50,7 @@ struct ChunkyButtonStyle: ButtonStyle {
             .offset(y: configuration.isPressed ? lip : 0)
             .background(shape.fill(isGold ? Palette.goldEdge : Palette.brownEdge).offset(y: lip))
             .padding(.bottom, lip)
+            .compositingGroup()
             .shadow(color: .black.opacity(0.45), radius: 7, x: 0, y: 5)
             .contentShape(Rectangle())
             .opacity(isEnabled ? 1 : 0.45)
