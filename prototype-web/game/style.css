@@ -1,0 +1,127 @@
+/* Layout concept: the whole screen is the pile; controls are lumps of the same stuff sitting on top of it. */
+:root {
+  --ground: #3a2210;
+  --lump-top: #8a5a2e;
+  --lump-bottom: #4d2d13;
+  --lump-edge: #2a1608;
+  --cream: #f6e3b4;
+  --gold: #e5b13e;
+  --gold-deep: #94660f;
+  --sheet: rgba(38, 21, 8, 0.93);
+  --font: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Trebuchet MS", system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+[hidden] { display: none !important; }
+
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ground); overscroll-behavior: none; }
+
+#game {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--ground);
+  color: var(--cream);
+  font-family: var(--font);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#surface, #overlay { position: absolute; left: 0; top: 0; display: block; touch-action: none; }
+#overlay { pointer-events: none; }
+
+.screen { position: absolute; inset: 0; }
+
+.lump {
+  min-height: 46px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 46% 54% 52% 48% / 62% 54% 46% 38%;
+  background: radial-gradient(120% 110% at 32% 18%, var(--lump-top), var(--lump-bottom) 72%);
+  box-shadow: inset 0 2px 2px rgba(255, 224, 170, 0.32), inset 0 -4px 6px rgba(20, 8, 0, 0.55), 0 4px 9px rgba(0, 0, 0, 0.55);
+  color: var(--cream);
+  font: 700 15px/1.1 var(--font);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 90ms ease-out;
+}
+.lump:nth-child(even) { border-radius: 54% 46% 44% 56% / 48% 60% 40% 52%; }
+.lump:active { transform: scale(0.94) translateY(2px); }
+.lump:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.lump[aria-pressed="true"], .lump.is-active { background: radial-gradient(120% 110% at 32% 18%, var(--gold), var(--gold-deep) 78%); color: #2a1608; }
+.lump[disabled] { opacity: 0.42; cursor: default; }
+.lump-big { min-height: 66px; width: 100%; font-size: 21px; }
+.lump-gold { background: radial-gradient(120% 110% at 32% 18%, var(--gold), var(--gold-deep) 78%); color: #2a1608; }
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0 max(24px, env(safe-area-inset-left, 0px)) max(44px, env(safe-area-inset-bottom, 0px)) max(24px, env(safe-area-inset-right, 0px));
+  pointer-events: none;
+}
+.menu-actions { display: grid; gap: 14px; width: min(100%, 340px); pointer-events: auto; }
+
+.hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 10px;
+  padding-left: max(14px, env(safe-area-inset-left, 0px));
+  padding-right: max(14px, env(safe-area-inset-right, 0px));
+  pointer-events: none;
+}
+.hud .lump, .hud .status { pointer-events: auto; }
+.hud-top { top: 0; padding-top: max(12px, env(safe-area-inset-top, 0px)); justify-content: space-between; align-items: center; }
+.hud-bottom { bottom: 0; padding-bottom: max(14px, env(safe-area-inset-bottom, 0px)); flex-direction: column; }
+
+.row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.row .lump { flex: 1 1 0; min-width: 72px; padding-inline: 6px; }
+
+.status {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 14px;
+  border-radius: 18px;
+  background: var(--sheet);
+  font-weight: 700;
+  min-width: 0;
+}
+.percent { color: var(--gold); font-size: 20px; font-variant-numeric: tabular-nums; }
+
+.sheet-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  background: rgba(20, 10, 2, 0.42);
+}
+.sheet {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 370px);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px;
+  border-radius: 26px 32px 24px 30px;
+  background: var(--sheet);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+.sheet h2 { margin: 0; font-size: 25px; line-height: 1.15; text-wrap: balance; color: var(--gold); }
+.hint { margin: 0; font-size: 15px; line-height: 1.35; opacity: 0.86; text-wrap: balance; }
+.sheet img { width: 100%; max-height: 56vh; object-fit: contain; border-radius: 16px; -webkit-touch-callout: default; user-select: auto; -webkit-user-select: auto; }
+
+.level-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.level { display: grid; gap: 4px; justify-items: center; align-content: center; min-height: 76px; }
+.level small { color: var(--gold); font-size: 14px; letter-spacing: 2px; }
+
+.stars { color: var(--gold); font-size: 46px; letter-spacing: 6px; line-height: 1; }
+.stars .off { color: rgba(246, 227, 180, 0.2); }
+
+@media (prefers-reduced-motion: reduce) { .lump { transition: none; } }

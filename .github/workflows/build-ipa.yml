@@ -1,0 +1,42 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test the game core
+        run: swift test
+      - name: Check that iOS audio can decode every sound
+        run: |
+          for file in ios/PoopDraw/Sounds/*.mp3; do
+            afconvert -f caff -d LEI16 "$file" "$RUNNER_TEMP/check.caf"
+            afinfo "$RUNNER_TEMP/check.caf" | grep "estimated duration"
+          done
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Build without signing
+        run: |
+          xcodebuild build \
+            -project PoopDraw.xcodeproj \
+            -scheme PoopDraw \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/PoopDraw.app Payload/
+          test -f Payload/PoopDraw.app/long-fart.mp3
+          zip -qr PoopDraw.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PoopDraw-ipa
+          path: PoopDraw.ipa

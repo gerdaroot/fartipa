@@ -1,0 +1,7 @@
+node_modules/
+*.xcodeproj/
+build/
+*.ipa
+Payload/
+prototype-web/tests/shots/
+ios/PoopDraw/Info.plist

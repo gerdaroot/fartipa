@@ -1,0 +1,12 @@
+{
+  "name": "poop-draw",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "test": "node --test tests/logic.test.js",
+    "e2e": "node tests/e2e.mjs",
+    "icon": "node tools/make-icon.mjs",
+    "build:web": "node tools/build-artifact.mjs"
+  },
+  "devDependencies": { "playwright-core": "^1.50.0" }
+}

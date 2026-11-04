@@ -1,0 +1,38 @@
+name: PoopDraw
+options:
+  bundleIdPrefix: com.poopdraw
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+targets:
+  PoopDraw:
+    type: application
+    platform: iOS
+    sources:
+      - path: ios/PoopDraw
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.poopdraw.app
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        # The pile is computed per pixel in Swift; an unoptimised build cannot keep up with a finger.
+        SWIFT_OPTIMIZATION_LEVEL: "-O"
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: ios/PoopDraw/Info.plist
+      properties:
+        CFBundleDisplayName: Рисуй на говне
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSPhotoLibraryAddUsageDescription: Чтобы сохранить твою картину в Фото.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait

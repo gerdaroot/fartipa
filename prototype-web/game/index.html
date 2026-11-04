@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Рисуй на говне</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!--BODY-->
+<main id="game">
+  <canvas id="surface" aria-label="Поверхность для рисования пальцем"></canvas>
+  <canvas id="overlay" aria-hidden="true"></canvas>
+
+  <section id="menu" class="screen menu">
+    <div class="menu-actions">
+      <button id="btn-free" class="lump lump-big" type="button">Рисовать</button>
+      <button id="btn-levels" class="lump lump-big" type="button">Обводить фигуры</button>
+    </div>
+  </section>
+
+  <section id="levels" class="screen sheet-wrap" hidden>
+    <div class="sheet">
+      <h2>Обводи пальцем</h2>
+      <p class="hint">Три звезды получит тот, кто не вылез за контур.</p>
+      <div id="level-grid" class="level-grid"></div>
+      <button id="btn-levels-back" class="lump" type="button">Назад</button>
+    </div>
+  </section>
+
+  <header id="hud-top" class="hud hud-top" hidden>
+    <button id="btn-back" class="lump" type="button">Меню</button>
+    <div id="trace-status" class="status" hidden>
+      <span id="trace-name"></span>
+      <span id="trace-percent" class="percent">0%</span>
+    </div>
+    <button id="btn-sound" class="lump" type="button" aria-pressed="true">Звук</button>
+  </header>
+
+  <footer id="hud-free" class="hud hud-bottom" hidden>
+    <div class="row" role="group" aria-label="Толщина пальца">
+      <button class="lump size" data-size="7" type="button">Мизинец</button>
+      <button class="lump size" data-size="12" type="button">Палец</button>
+      <button class="lump size" data-size="22" type="button">Кулак</button>
+      <button id="btn-smooth" class="lump" type="button" aria-pressed="false">Загладить</button>
+    </div>
+    <div class="row">
+      <button id="btn-new" class="lump" type="button">Новая куча</button>
+      <button id="btn-fart" class="lump" type="button">Пук</button>
+      <button id="btn-save" class="lump" type="button">Сохранить</button>
+    </div>
+  </footer>
+
+  <footer id="hud-trace" class="hud hud-bottom" hidden>
+    <div class="row">
+      <button id="btn-retry" class="lump" type="button">Заново</button>
+      <button id="btn-done" class="lump lump-gold" type="button">Готово</button>
+    </div>
+  </footer>
+
+  <section id="result" class="screen sheet-wrap" hidden>
+    <div class="sheet" role="dialog" aria-labelledby="result-verdict">
+      <div id="result-stars" class="stars" aria-hidden="true"></div>
+      <h2 id="result-verdict"></h2>
+      <p id="result-score" class="hint"></p>
+      <div class="row">
+        <button id="btn-result-again" class="lump" type="button">Ещё раз</button>
+        <button id="btn-result-next" class="lump lump-gold" type="button">Дальше</button>
+      </div>
+      <button id="btn-result-save" class="lump" type="button">Сохранить картину</button>
+    </div>
+  </section>
+
+  <section id="saved" class="screen sheet-wrap" hidden>
+    <div class="sheet">
+      <img id="saved-image" alt="Твоя картина на говне">
+      <p class="hint">Зажми картинку пальцем, чтобы сохранить её в Фото.</p>
+      <button id="btn-saved-close" class="lump" type="button">Закрыть</button>
+    </div>
+  </section>
+</main>
+<!--/BODY-->
+<script src="logic.js"></script>
+<script src="surface.js"></script>
+<script src="audio.js"></script>
+<script src="flies.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
