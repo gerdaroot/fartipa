@@ -20,7 +20,7 @@ xcrun simctl boot "$udid"
 xcrun simctl bootstatus "$udid" -b
 xcrun simctl install "$udid" "$app_path"
 
-for screen in menu levels free trace result; do
+for screen in menu levels free trace result bike-hub bike-run garage bike-over; do
   xcrun simctl launch --terminate-running-process "$udid" "$bundle_id" "--demo=$screen"
   sleep 12
   xcrun simctl io "$udid" screenshot "$output/$screen.png"

@@ -18,6 +18,10 @@ final class BoardView: UIView {
 
     var tool: BoardTool = .none
     var showsTitle = true
+    /// Stops the frame loop while another mode covers the board.
+    var isPaused = false {
+        didSet { displayLink?.isPaused = isPaused }
+    }
     var onReady: (() -> Void)?
     /// Finger moved: stroke id, previous and current position in points.
     var onMove: ((ObjectIdentifier, CGPoint, CGPoint) -> Void)?
@@ -66,6 +70,7 @@ final class BoardView: UIView {
         displayLink = nil
         guard window != nil else { return }
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        link.isPaused = isPaused
         link.add(to: .main, forMode: .common)
         displayLink = link
         setNeedsLayout()

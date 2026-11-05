@@ -28,6 +28,7 @@ struct RootView: View {
         case .free: FreeDrawingScreen(model: model)
         case .trace: TraceScreen(model: model)
         case .result: ResultScreen(model: model)
+        case .bike: BikeRoot(game: model.bike, onExit: model.leaveBike)
         }
     }
 }

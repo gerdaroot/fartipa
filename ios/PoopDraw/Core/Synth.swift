@@ -30,8 +30,41 @@ struct SquelchGenerator {
     }
 }
 
+/// A rough engine note whose pitch follows the bike's speed. Runs on the audio thread.
+struct EngineGenerator {
+    private let sampleRate: Float
+    private var phase: Float = 0
+    private var currentLevel: Float = 0
+    private var currentRev: Float = 0
+
+    init(sampleRate: Double) {
+        self.sampleRate = Float(sampleRate)
+    }
+
+    /// `rev` runs from 0 at the start of a ride to 1 at top speed.
+    mutating func fill(_ output: UnsafeMutableBufferPointer<Float>, level: Float, rev: Float) {
+        let glide = 1 - exp(-1 / (0.05 * sampleRate))
+        for i in 0..<output.count {
+            currentLevel += (level - currentLevel) * glide
+            currentRev += (rev - currentRev) * glide
+            phase += (46 + currentRev * 96) / sampleRate
+            if phase >= 1 { phase -= 1 }
+            let saw = 2 * phase - 1
+            let thump: Float = phase < 0.22 ? 1 : -0.3
+            let sample = (saw * 0.45 + thump * 0.55) * currentLevel
+            output[i] = level == 0 && currentLevel < 0.0001 ? 0 : max(-1, min(1, sample))
+        }
+    }
+}
+
 /// Short effects built from sine and triangle waves when the app starts.
 enum Synth {
+    static func coin(sampleRate: Double) -> [Float] {
+        let first = tone(from: 988, to: 988, seconds: 0.07, volume: 0.16, sampleRate: sampleRate, triangle: true)
+        let second = tone(from: 1319, to: 1319, seconds: 0.16, volume: 0.16, sampleRate: sampleRate, triangle: true)
+        return first + second
+    }
+
     static func plop(sampleRate: Double) -> [Float] {
         tone(from: 340, to: 70, seconds: 0.13, volume: 0.32, sampleRate: sampleRate, triangle: false)
     }
