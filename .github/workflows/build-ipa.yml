@@ -80,7 +80,7 @@ jobs:
             build/Build/Products/Debug-iphonesimulator/KrutoyBiker.app \
             "$RUNNER_TEMP/screens" \
             com.krutoybiker.app \
-            hub ride garage over
+            hub ride garage upgrades over
       - name: Publish screenshots to their own branch
         env:
           PUSH_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}

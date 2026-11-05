@@ -1,107 +1,160 @@
 import SwiftUI
 
+/// Loud night-racer colours: gold and red on deep navy, with brown for the poop jokes.
 enum Palette {
-    static let goldTop = Color(red: 0.98, green: 0.79, blue: 0.33)
-    static let goldBottom = Color(red: 0.86, green: 0.60, blue: 0.16)
-    static let goldEdge = Color(red: 0.52, green: 0.33, blue: 0.05)
-    static let brownTop = Color(red: 0.50, green: 0.32, blue: 0.16)
-    static let brownBottom = Color(red: 0.35, green: 0.21, blue: 0.09)
-    static let brownEdge = Color(red: 0.17, green: 0.09, blue: 0.03)
-    static let gold = Color(red: 0.95, green: 0.74, blue: 0.28)
-    static let cream = Color(red: 0.97, green: 0.91, blue: 0.75)
-    static let ink = Color(red: 0.17, green: 0.09, blue: 0.03)
-    static let tray = Color(red: 0.13, green: 0.07, blue: 0.03).opacity(0.92)
-    static let hairline = Color(red: 0.97, green: 0.91, blue: 0.75).opacity(0.14)
+    static let goldTop = Color(red: 1.00, green: 0.88, blue: 0.30)
+    static let goldBottom = Color(red: 0.95, green: 0.58, blue: 0.08)
+    static let goldEdge = Color(red: 0.55, green: 0.30, blue: 0.02)
+    static let redTop = Color(red: 1.00, green: 0.33, blue: 0.24)
+    static let redBottom = Color(red: 0.78, green: 0.07, blue: 0.10)
+    static let redEdge = Color(red: 0.40, green: 0.02, blue: 0.05)
+    static let steelTop = Color(red: 0.27, green: 0.31, blue: 0.43)
+    static let steelBottom = Color(red: 0.15, green: 0.17, blue: 0.26)
+    static let steelEdge = Color(red: 0.06, green: 0.07, blue: 0.12)
+    static let greenTop = Color(red: 0.55, green: 0.92, blue: 0.30)
+    static let greenBottom = Color(red: 0.20, green: 0.66, blue: 0.12)
+    static let greenEdge = Color(red: 0.07, green: 0.30, blue: 0.04)
+    static let gold = Color(red: 1.00, green: 0.80, blue: 0.20)
+    static let cream = Color(red: 1.00, green: 0.97, blue: 0.88)
+    static let ink = Color(red: 0.10, green: 0.05, blue: 0.02)
+    static let outline = Color(red: 0.08, green: 0.03, blue: 0.02)
+    static let piss = Color(red: 1.00, green: 0.86, blue: 0.10)
+    static let poop = Color(red: 0.45, green: 0.27, blue: 0.11)
+    static let danger = Color(red: 1.00, green: 0.25, blue: 0.20)
+    static let panelTop = Color(red: 0.10, green: 0.11, blue: 0.20).opacity(0.94)
+    static let panelBottom = Color(red: 0.04, green: 0.04, blue: 0.09).opacity(0.94)
+    static let tray = Color(red: 0.05, green: 0.05, blue: 0.10).opacity(0.82)
+    static let hairline = Color.white.opacity(0.16)
+    static let dim = Color.black.opacity(0.55)
+
+    static func rarity(_ rarity: Rarity) -> Color {
+        switch rarity {
+        case .common: return Color(red: 0.62, green: 0.70, blue: 0.78)
+        case .rare: return Color(red: 0.25, green: 0.62, blue: 1.00)
+        case .epic: return Color(red: 0.74, green: 0.36, blue: 1.00)
+        case .legendary: return Color(red: 1.00, green: 0.66, blue: 0.10)
+        }
+    }
+
+    static func color(_ rgb: RGB) -> Color {
+        Color(red: rgb.r, green: rgb.g, blue: rgb.b)
+    }
 }
 
+/// Heavy rounded type. Menu text follows Dynamic Type through text styles; HUD numbers use fixed
+/// sizes so the riding screen keeps its layout.
 enum GameFont {
-    static func title(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .rounded) }
-    static func label(_ size: CGFloat) -> Font { .system(size: size, weight: .bold, design: .rounded) }
-    static func body(_ size: CGFloat) -> Font { .system(size: size, weight: .medium, design: .rounded) }
+    static func title(_ size: CGFloat) -> Font { .system(size: size, weight: .black, design: .rounded) }
+    static func label(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .rounded) }
+    static func body(_ size: CGFloat) -> Font { .system(size: size, weight: .semibold, design: .rounded) }
+    static func styled(_ style: Font.TextStyle, weight: Font.Weight = .heavy) -> Font {
+        .system(style, design: .rounded, weight: weight)
+    }
+}
+
+/// Draws a thick dark outline around text or a symbol, like stickers in mobile racers.
+/// `color` should be dark: the copies behind are the content multiplied by it.
+struct OutlinedModifier: ViewModifier {
+    var color: Color = Palette.outline
+    var width: CGFloat = 2
+
+    private static let directions: [(CGFloat, CGFloat)] = [
+        (1, 0), (-1, 0), (0, 1), (0, -1), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7), (-0.7, -0.7),
+    ]
+
+    func body(content: Content) -> some View {
+        ZStack {
+            ForEach(0..<Self.directions.count, id: \.self) { index in
+                // Multiplying keeps working when the content already set its own colour.
+                content
+                    .colorMultiply(color)
+                    .offset(x: Self.directions[index].0 * width, y: Self.directions[index].1 * width)
+                    .accessibilityHidden(true)
+            }
+            content
+        }
+    }
+}
+
+extension View {
+    func outlined(_ color: Color = Palette.outline, width: CGFloat = 2) -> some View {
+        modifier(OutlinedModifier(color: color, width: width))
+    }
+
+    /// The dark drop shadow every HUD element carries so it reads over a bright road.
+    func hudShadow() -> some View {
+        shadow(color: .black.opacity(0.7), radius: 3, x: 0, y: 2)
+    }
 }
 
 /// A chunky game button: the face sits on a darker lip and sinks into it when pressed.
 struct ChunkyButtonStyle: ButtonStyle {
-    enum Kind { case gold, brown }
+    enum Kind { case gold, red, steel, green }
 
-    var kind: Kind = .brown
+    var kind: Kind = .steel
     var height: CGFloat = 58
-    var fontSize: CGFloat = 19
+    var fontSize: CGFloat = 20
     @Environment(\.isEnabled) private var isEnabled
 
-    private let lip: CGFloat = 5
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 18, style: .continuous) }
+    private let lip: CGFloat = 6
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 16, style: .continuous) }
+
+    private var colors: (top: Color, bottom: Color, edge: Color) {
+        switch kind {
+        case .gold: return (Palette.goldTop, Palette.goldBottom, Palette.goldEdge)
+        case .red: return (Palette.redTop, Palette.redBottom, Palette.redEdge)
+        case .steel: return (Palette.steelTop, Palette.steelBottom, Palette.steelEdge)
+        case .green: return (Palette.greenTop, Palette.greenBottom, Palette.greenEdge)
+        }
+    }
 
     func makeBody(configuration: Configuration) -> some View {
-        let isGold = kind == .gold
+        let set = colors
+        let text: Color = kind == .gold ? Palette.ink : Palette.cream
         return configuration.label
             .font(GameFont.label(fontSize))
+            .textCase(.uppercase)
             .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .foregroundStyle(isGold ? Palette.ink : Palette.cream)
+            .minimumScaleFactor(0.6)
+            .foregroundStyle(text)
+            .shadow(color: kind == .gold ? .white.opacity(0.4) : .black.opacity(0.6), radius: 0, x: 0, y: 1.5)
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, minHeight: height)
-            .background(shape.fill(LinearGradient(
-                colors: isGold ? [Palette.goldTop, Palette.goldBottom] : [Palette.brownTop, Palette.brownBottom],
-                startPoint: .top,
-                endPoint: .bottom
-            )))
-            .overlay(shape.strokeBorder(Color.white.opacity(isGold ? 0.35 : 0.14), lineWidth: 1))
+            .background(shape.fill(LinearGradient(colors: [set.top, set.bottom], startPoint: .top, endPoint: .bottom)))
+            .overlay(alignment: .top) {
+                shape.fill(Color.white.opacity(0.22)).frame(height: height * 0.42).padding(4)
+            }
+            .overlay(shape.strokeBorder(Palette.outline, lineWidth: 2.5))
             .offset(y: configuration.isPressed ? lip : 0)
-            .background(shape.fill(isGold ? Palette.goldEdge : Palette.brownEdge).offset(y: lip))
+            .background(shape.fill(set.edge).overlay(shape.strokeBorder(Palette.outline, lineWidth: 2.5)).offset(y: lip))
             .padding(.bottom, lip)
             .compositingGroup()
-            .shadow(color: .black.opacity(0.45), radius: 7, x: 0, y: 5)
+            .shadow(color: .black.opacity(0.5), radius: 8, x: 0, y: 6)
             .contentShape(Rectangle())
-            .opacity(isEnabled ? 1 : 0.45)
+            .opacity(isEnabled ? 1 : 0.5)
             .animation(.easeOut(duration: 0.07), value: configuration.isPressed)
-    }
-}
-
-/// A round dark button with a symbol, for the corners of the screen.
-struct RoundIconButton: View {
-    let symbol: String
-    let label: String
-    var size: CGFloat = 46
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: size * 0.38, weight: .bold))
-                .foregroundStyle(Palette.cream)
-                .frame(width: size, height: size)
-                .background(Circle().fill(Palette.tray))
-                .overlay(Circle().strokeBorder(Palette.hairline, lineWidth: 1))
-                .shadow(color: .black.opacity(0.4), radius: 5, x: 0, y: 3)
-        }
-        .buttonStyle(PressScaleStyle())
-        .accessibilityLabel(label)
     }
 }
 
 struct PressScaleStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .scaleEffect(configuration.isPressed ? 0.92 : 1)
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
 
-/// A dimmed backdrop with one centred panel on it.
-struct Sheet<Content: View>: View {
-    @ViewBuilder var content: Content
+/// A dark glassy panel with a thin bright rim.
+struct PanelBackground: View {
+    var cornerRadius: CGFloat = 24
+    var rim: Color = Palette.hairline
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.5).ignoresSafeArea()
-            VStack(spacing: 14) { content }
-                .padding(20)
-                .frame(maxWidth: 380)
-                .background(RoundedRectangle(cornerRadius: 30, style: .continuous).fill(Palette.tray))
-                .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(Palette.hairline, lineWidth: 1))
-                .shadow(color: .black.opacity(0.6), radius: 18, x: 0, y: 12)
-                .padding(16)
-        }
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape
+            .fill(LinearGradient(colors: [Palette.panelTop, Palette.panelBottom], startPoint: .top, endPoint: .bottom))
+            .overlay(shape.strokeBorder(rim, lineWidth: 1.5))
+            .overlay(shape.inset(by: 3).strokeBorder(Color.black.opacity(0.4), lineWidth: 1))
+            .shadow(color: .black.opacity(0.55), radius: 14, x: 0, y: 8)
     }
 }
