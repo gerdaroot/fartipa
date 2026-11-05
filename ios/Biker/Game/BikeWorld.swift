@@ -43,7 +43,7 @@ final class BikeWorld {
     private(set) var tier: RenderTier
     /// When on, a run of slow frames while riding (or a hot phone) steps the tier down by itself.
     var autoQuality = true
-    private var monitor = FrameMonitor()
+    private var monitor = SlowFrameMonitor()
     private var thermalClock = 0.0
     private var lastDowngrade = -Double.infinity
 

@@ -79,7 +79,7 @@ struct RenderSettings {
 /// Watches frame times during live riding and says when to step down a tier.
 /// Slow means the average frame over a window is clearly longer than a 60 fps frame,
 /// or many frames in the window were long. Single hitches do not count.
-struct FrameMonitor {
+struct SlowFrameMonitor {
     private static let windowSeconds = 2.0
     private static let slowAverage = 1.0 / 50
     private static let longFrame = 1.0 / 40
@@ -89,7 +89,7 @@ struct FrameMonitor {
     private var elapsed = 0.0
     private var frames = 0
     private var longFrames = 0
-    private var settle = FrameMonitor.settleSeconds
+    private var settle = SlowFrameMonitor.settleSeconds
 
     /// Ignores a while after a tier change or a warm-up, while shaders and textures settle.
     mutating func restart() {

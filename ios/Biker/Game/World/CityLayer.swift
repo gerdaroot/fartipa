@@ -163,4 +163,10 @@ final class CityLayer {
         posterMaterial = material
         signs.invalidate()
     }
+
+    /// Paints the neon slogans in the background; `done` runs on the main actor when they are on.
+    func paintSigns(done: @escaping @MainActor () -> Void) {
+        kit.paintSigns(done: done)
+    }
+
 }
