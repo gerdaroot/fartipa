@@ -30,33 +30,6 @@ struct SquelchGenerator {
     }
 }
 
-/// A rough engine note whose pitch follows the bike's speed. Runs on the audio thread.
-struct EngineGenerator {
-    private let sampleRate: Float
-    private var phase: Float = 0
-    private var currentLevel: Float = 0
-    private var currentRev: Float = 0
-
-    init(sampleRate: Double) {
-        self.sampleRate = Float(sampleRate)
-    }
-
-    /// `rev` runs from 0 at the start of a ride to 1 at top speed.
-    mutating func fill(_ output: UnsafeMutableBufferPointer<Float>, level: Float, rev: Float) {
-        let glide = 1 - exp(-1 / (0.05 * sampleRate))
-        for i in 0..<output.count {
-            currentLevel += (level - currentLevel) * glide
-            currentRev += (rev - currentRev) * glide
-            phase += (46 + currentRev * 96) / sampleRate
-            if phase >= 1 { phase -= 1 }
-            let saw = 2 * phase - 1
-            let thump: Float = phase < 0.22 ? 1 : -0.3
-            let sample = (saw * 0.45 + thump * 0.55) * currentLevel
-            output[i] = level == 0 && currentLevel < 0.0001 ? 0 : max(-1, min(1, sample))
-        }
-    }
-}
-
 /// Short effects built from sine and triangle waves when the app starts.
 enum Synth {
     static func coin(sampleRate: Double) -> [Float] {
@@ -70,12 +43,46 @@ enum Synth {
     }
 
     static func fanfare(sampleRate: Double) -> [Float] {
-        let notes: [Double] = [392, 523, 659, 784]
-        let gap = Int(0.11 * sampleRate)
-        let note = 0.26
-        var mix = [Float](repeating: 0, count: gap * (notes.count - 1) + Int(note * sampleRate))
+        arpeggio([392, 523, 659, 784], gapSeconds: 0.11, noteSeconds: 0.26, volume: 0.2, sampleRate: sampleRate)
+    }
+
+    /// A brighter, longer ring for a golden coin.
+    static func goldenCoin(sampleRate: Double) -> [Float] {
+        arpeggio([988, 1319, 1760], gapSeconds: 0.06, noteSeconds: 0.22, volume: 0.15, sampleRate: sampleRate)
+    }
+
+    /// A dull thump for a lost life.
+    static func hit(sampleRate: Double) -> [Float] {
+        tone(from: 180, to: 40, seconds: 0.3, volume: 0.45, sampleRate: sampleRate, triangle: false)
+    }
+
+    /// A wet slide on a poop pile.
+    static func skid(sampleRate: Double) -> [Float] {
+        tone(from: 520, to: 110, seconds: 0.35, volume: 0.22, sampleRate: sampleRate, triangle: true)
+    }
+
+    /// A quick rising chirp for a near miss.
+    static func nearMiss(sampleRate: Double) -> [Float] {
+        tone(from: 660, to: 1480, seconds: 0.14, volume: 0.16, sampleRate: sampleRate, triangle: true)
+    }
+
+    static func pickup(sampleRate: Double) -> [Float] {
+        arpeggio([523, 784, 1047], gapSeconds: 0.07, noteSeconds: 0.18, volume: 0.17, sampleRate: sampleRate)
+    }
+
+    static func shieldBlocked(sampleRate: Double) -> [Float] {
+        tone(from: 1200, to: 300, seconds: 0.25, volume: 0.24, sampleRate: sampleRate, triangle: true)
+    }
+
+    private static func arpeggio(
+        _ notes: [Double], gapSeconds: Double, noteSeconds: Double, volume: Double, sampleRate: Double
+    ) -> [Float] {
+        let gap = Int(gapSeconds * sampleRate)
+        var mix = [Float](repeating: 0, count: gap * (notes.count - 1) + Int(noteSeconds * sampleRate))
         for (index, pitch) in notes.enumerated() {
-            let samples = tone(from: pitch, to: pitch, seconds: note, volume: 0.2, sampleRate: sampleRate, triangle: true)
+            let samples = tone(
+                from: pitch, to: pitch, seconds: noteSeconds, volume: volume, sampleRate: sampleRate, triangle: true
+            )
             for (offset, sample) in samples.enumerated() {
                 mix[index * gap + offset] += sample
             }
