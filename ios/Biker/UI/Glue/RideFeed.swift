@@ -23,6 +23,23 @@ struct HUDSnapshot: Equatable {
     var warningLane: Int?
     var showsHint = false
     var isHurt = false
+    /// 0...1: the jump button's charge; 1 means a tap jumps (or flips in the air off a ramp).
+    var jumpReadiness = 0.0
+    var canJump = false
+    var isAirborne = false
+    /// The road event running now and whole seconds left of it.
+    var roadEvent: RoadEventKind?
+    var roadEventSeconds = 0
+    /// 0...1: how soon a stream lands where the bike is, for the red screen-edge glow.
+    var danger = 0.0
+}
+
+/// The big banner of a road event: «ГОВНОЛИВЕНЬ» and its line.
+struct RideBanner: Identifiable, Equatable {
+    let id: Int
+    let title: String
+    let subtitle: String
+    let born: Double
 }
 
 struct RidePopup: Identifiable, Equatable {
@@ -46,6 +63,10 @@ final class RideFeed: ObservableObject {
     private static let hintSeconds = 4.0
     private static let hintRides = 3
     private static let msToKmh = 3.6
+    static let bannerSeconds = 2.6
+    /// A stream this many seconds from landing on the bike's line starts the danger glow.
+    private static let dangerSeconds = 1.4
+    private static let dangerReach = BikeRun.streamReach + BikeRun.bikeHalfWidth
     /// Numbers that change every frame (score, speed, coins, gauges) redraw at most this often.
     private static let numbersInterval = 1.0 / 15
 
@@ -53,6 +74,9 @@ final class RideFeed: ObservableObject {
     @Published private(set) var popups: [RidePopup] = []
     /// Bumped on every hit; the HUD flashes yellow when it changes.
     @Published private(set) var hitCount = 0
+    /// Bumped on every near-miss slow motion; the HUD flashes white when it changes.
+    @Published private(set) var slowMoCount = 0
+    @Published private(set) var banner: RideBanner?
 
     private var nextId = 0
     private var numbersShownAt = -Double.infinity
@@ -60,6 +84,7 @@ final class RideFeed: ObservableObject {
     func reset() {
         hud = HUDSnapshot()
         if !popups.isEmpty { popups = [] }
+        if banner != nil { banner = nil }
         numbersShownAt = -.infinity
     }
 
@@ -78,6 +103,15 @@ final class RideFeed: ObservableObject {
         hitCount += 1
     }
 
+    func flashSlowMo() {
+        slowMoCount += 1
+    }
+
+    func showBanner(_ kind: RoadEventKind, now: Double) {
+        nextId += 1
+        banner = RideBanner(id: nextId, title: kind.title, subtitle: kind.subtitle, born: now)
+    }
+
     func pop(_ text: String, tone: RidePopup.Tone, now: Double) {
         nextId += 1
         let fresh = RidePopup(id: nextId, text: text, tone: tone, born: now)
@@ -86,6 +120,7 @@ final class RideFeed: ObservableObject {
 
     /// Called every frame; publishes only when a popup actually expires.
     func expire(now: Double) {
+        if let shown = banner, now - shown.born > Self.bannerSeconds { banner = nil }
         guard !popups.isEmpty else { return }
         var anyDead = false
         for popup in popups where !Self.isAlive(popup, now: now) {
@@ -125,6 +160,12 @@ final class RideFeed: ObservableObject {
         hud.warningLane = warningLane(in: run)
         hud.showsHint = run.time < hintSeconds && ridesBefore < hintRides
         hud.isHurt = run.invulnerable > 0 && !run.isOver
+        hud.jumpReadiness = rounded(run.jumpReadiness)
+        hud.canJump = run.canJump
+        hud.isAirborne = run.isAirborne
+        hud.roadEvent = run.currentRoadEvent?.kind
+        hud.roadEventSeconds = hud.roadEvent == nil ? 0 : Int(run.roadEventSecondsLeft.rounded(.up))
+        hud.danger = rounded(danger(in: run))
         return hud
     }
 
@@ -137,6 +178,9 @@ final class RideFeed: ObservableObject {
         merged.dial = source.dial
         merged.comboFraction = source.comboFraction
         merged.boostFraction = source.boostFraction
+        merged.jumpReadiness = source.jumpReadiness
+        merged.danger = source.danger
+        merged.roadEventSeconds = source.roadEventSeconds
         return merged
     }
 
@@ -158,5 +202,19 @@ final class RideFeed: ObservableObject {
         if x < -laneSplit { return -1 }
         if x > laneSplit { return 1 }
         return 0
+    }
+
+    /// Grows from 0 to 1 as a stream (pouring or about to) comes within `dangerSeconds` of the
+    /// bike on its current line.
+    private static func danger(in run: BikeRun) -> Double {
+        guard !run.isOver, run.speed > 0 else { return 0 }
+        var level = 0.0
+        for stream in run.streams where stream.isVisible {
+            let ahead = stream.z - run.distance
+            guard ahead > 0, abs(stream.x(atTime: run.time) - run.x) < dangerReach else { continue }
+            let eta = ahead / run.speed
+            level = max(level, 1 - eta / dangerSeconds)
+        }
+        return min(1, level)
     }
 }

@@ -15,7 +15,7 @@ enum VehicleModels {
     static func paint(_ index: Int, library: MaterialLibrary) -> SCNMaterial {
         let safe = abs(index) % paints.count
         return library.shared("paint-\(safe)", bend: false) {
-            WorldMaterials.pbr(paints[safe], metalness: 0.65, roughness: 0.28)
+            WorldMaterials.pbr(paints[safe], metalness: 0.35, roughness: 0.32)
         }
     }
 
@@ -136,7 +136,7 @@ enum VehicleModels {
         holder.addChildNode(box(2.2, 0.85, 0.08, 0.02, glass(library), 0, 2.3, -half + 0.03))
         let tankLength = half * 2 - 2.4
         let tankMaterial = library.shared("tank", bend: false) {
-            WorldMaterials.pbr(UIColor(red: 0.42, green: 0.27, blue: 0.1, alpha: 1), metalness: 0.7, roughness: 0.3)
+            WorldMaterials.pbr(UIColor(red: 0.42, green: 0.27, blue: 0.1, alpha: 1), metalness: 0.5, roughness: 0.35)
         }
         let tankShape = SCNCylinder(radius: 1.15, height: CGFloat(tankLength))
         tankShape.radialSegmentCount = 20

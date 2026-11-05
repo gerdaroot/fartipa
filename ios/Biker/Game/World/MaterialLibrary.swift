@@ -9,6 +9,7 @@ final class MaterialLibrary {
     private var byName: [String: SCNMaterial] = [:]
     private var bendable: [SCNMaterial] = []
     private var lastBend = BendAmount(x: .nan, y: .nan)
+    private var facadeLooks: [String: TexFacadeLook] = [:]
 
     /// The material called `name`, made on first use.
     func shared(_ name: String, bend: Bool = true, make: () -> SCNMaterial) -> SCNMaterial {
@@ -21,8 +22,17 @@ final class MaterialLibrary {
             WorldBend.apply(lastBend.x.isNaN ? .flat : lastBend, to: material)
             bendable.append(material)
         }
+        // Made after the photos arrived (a late pool, a poster): dress it now, before its first draw.
+        TexDress.dress(material, library: self)
         return material
     }
+
+    /// Remembers which facade look a facade material shows, so the photo pass can repaint it.
+    func registerFacade(_ name: String, look: TexFacadeLook) {
+        facadeLooks[name] = look
+    }
+
+    func facadeLook(named name: String) -> TexFacadeLook? { facadeLooks[name] }
 
     func material(named name: String) -> SCNMaterial? { byName[name] }
 

@@ -77,6 +77,7 @@ private struct GameRoot: View {
         case .hub: HubScreen(game: game).transition(.opacity)
         case .garage: GarageScreen(game: game).transition(.opacity)
         case .upgrades: UpgradesScreen(game: game).transition(.opacity)
+        case .missions: MissionsScreen(game: game).transition(.opacity)
         case .riding: RideHUD(game: game, feed: game.feed)
         case .paused:
             ZStack {

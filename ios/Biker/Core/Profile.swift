@@ -19,6 +19,18 @@ struct RideReward: Equatable {
     let achievementCoins: Int
     let isNewRecord: Bool
     let unlocked: [AchievementID]
+    /// Coins paid by missions finished in this ride.
+    var missionCoins = 0
+    /// Missions finished in this ride, as they were when finished (already replaced in the profile).
+    var completedMissions: [Mission] = []
+    /// Coins paid for new player levels.
+    var levelCoins = 0
+    var levelBefore = 1
+    var levelAfter = 1
+    var xpGained = 0
+
+    /// Everything the ride paid.
+    var totalCoins: Int { coinsEarned + achievementCoins + missionCoins + levelCoins }
 }
 
 enum DailyClaim: Equatable {
@@ -36,6 +48,7 @@ struct Profile: Codable, Equatable {
     private static let largestDaySeconds = 1e14
     private static let largestSavedDay = 1_000_000_000_000
     private static let largestSavedStreak = 1_000_000
+    private static let xpCap = 1_000_000_000_000
 
     private(set) var coins = 0
     private(set) var bestScore = 0
@@ -50,12 +63,19 @@ struct Profile: Codable, Equatable {
     private(set) var achievements: Set<String> = []
     private(set) var lastDailyDay: Int?
     private(set) var dailyStreak = 0
+    /// Experience; the player level comes from it (`level`, `levelProgress`).
+    private(set) var xp = 0
+    /// The active missions, always `MissionDeck.activeCount` of them.
+    private(set) var missions: [Mission] = MissionDeck.starting
+    /// The id of the last mission handed out.
+    private(set) var missionSerial = MissionDeck.starting.count
 
     private static var startingOwned: Set<String> { Set(Catalog.freeIds) }
 
     private enum CodingKeys: String, CodingKey {
         case coins, bestScore, stats, owned, bikeId, riderId, trailId
         case upgradeLevels, achievements, lastDailyDay, dailyStreak
+        case xp, missions, missionSerial
     }
 
     init() {}
@@ -75,6 +95,9 @@ struct Profile: Codable, Equatable {
         achievements = Self.lenient(c, Set<String>.self, .achievements) ?? []
         lastDailyDay = Self.lenient(c, Int.self, .lastDailyDay)
         dailyStreak = Self.lenient(c, Int.self, .dailyStreak) ?? 0
+        xp = Self.lenient(c, Int.self, .xp) ?? 0
+        missions = Self.lenient(c, [Mission].self, .missions) ?? MissionDeck.starting
+        missionSerial = Self.lenient(c, Int.self, .missionSerial) ?? MissionDeck.starting.count
     }
 
     private static func lenient<T: Decodable>(
@@ -113,6 +136,16 @@ struct Profile: Codable, Equatable {
         achievements.contains(id.rawValue)
     }
 
+    /// The player level, 1 and up.
+    var level: Int { PlayerLevel.level(forXP: xp) }
+    /// Level, experience into it and experience it needs, for a progress bar.
+    var levelProgress: LevelProgress { PlayerLevel.progress(forXP: xp) }
+
+    /// The active missions as they would stand if `ride` ended now, for showing progress mid-ride.
+    func missionsPreview(after ride: RideSummary) -> [Mission] {
+        missions.map { $0.progressed(by: ride) }
+    }
+
     var selectedBike: BikeSkin? { Catalog.bike(id: bikeId) }
     var selectedRider: RiderSkin? { Catalog.rider(id: riderId) }
     var selectedTrail: TrailSkin? { Catalog.trail(id: trailId) }
@@ -130,15 +163,44 @@ struct Profile: Codable, Equatable {
         return true
     }
 
-    /// Call once when a ride ends: banks the coins, adds up the stats, unlocks achievements.
+    /// Call once when a ride ends: banks the coins, adds up the stats, moves missions on (paying and
+    /// replacing finished ones), adds experience (paying for new levels) and unlocks achievements.
     mutating func recordRide(_ ride: RideSummary) -> RideReward {
         let before = coins
         earn(ride.coins)
         let earned = coins - before
         let isRecord = recordScore(ride.score)
         stats = stats.adding(ride)
+        let finished = advanceMissions(by: ride)
+        let levelBefore = level
+        let gained = PlayerLevel.xp(forScore: ride.score)
+        xp = min(Self.xpCap, xp + gained)
+        let levelCoins = PlayerLevel.rewards(from: levelBefore, to: level)
+        earn(levelCoins)
         let (unlocked, paid) = unlockAchievements()
-        return RideReward(coinsEarned: earned, achievementCoins: paid, isNewRecord: isRecord, unlocked: unlocked)
+        var reward = RideReward(coinsEarned: earned, achievementCoins: paid, isNewRecord: isRecord, unlocked: unlocked)
+        reward.missionCoins = finished.reduce(0) { $0 + $1.reward }
+        reward.completedMissions = finished
+        reward.levelCoins = levelCoins
+        reward.levelBefore = levelBefore
+        reward.levelAfter = level
+        reward.xpGained = gained
+        return reward
+    }
+
+    /// Adds the ride to every mission; pays and replaces the finished ones in place.
+    private mutating func advanceMissions(by ride: RideSummary) -> [Mission] {
+        var finished: [Mission] = []
+        var next = missions.map { $0.progressed(by: ride) }
+        for index in next.indices where next[index].isDone {
+            finished.append(next[index])
+            earn(next[index].reward)
+            missionSerial += 1
+            let others = next.map { $0.kind }
+            next[index] = MissionDeck.make(serial: missionSerial, level: level, avoiding: others)
+        }
+        missions = next
+        return finished
     }
 
     /// Unlocks whatever the stats have reached, pays for it and hands over its skins.
@@ -263,10 +325,31 @@ struct Profile: Codable, Equatable {
         clean.owned = repairedOwned(achievements: clean.achievements)
         clean.lastDailyDay = lastDailyDay.flatMap { $0 > -Self.largestSavedDay && $0 < Self.largestSavedDay ? $0 : nil }
         clean.dailyStreak = min(Self.largestSavedStreak, max(0, dailyStreak))
+        let cleanXP = min(Self.xpCap, max(0, xp))
+        var serial = max(MissionDeck.starting.count, max(missionSerial, missions.map { $0.id }.max() ?? 0))
+        let cleanMissions = repairedMissions(serial: &serial, level: PlayerLevel.level(forXP: cleanXP))
+        clean.xp = cleanXP
+        clean.missionSerial = serial
+        clean.missions = cleanMissions
         clean.selectIfValid(bikeId, kind: .bike)
         clean.selectIfValid(riderId, kind: .rider)
         clean.selectIfValid(trailId, kind: .trail)
         return clean
+    }
+
+    /// Valid saved missions stay (progress capped at the goal); missing or broken ones are replaced.
+    private func repairedMissions(serial: inout Int, level: Int) -> [Mission] {
+        var kept: [Mission] = []
+        for mission in missions where mission.isValid && !kept.contains(where: { $0.id == mission.id }) {
+            kept.append(Mission(id: mission.id, kind: mission.kind, goal: mission.goal, reward: mission.reward,
+                                progress: min(mission.goal, mission.progress)))
+        }
+        kept = Array(kept.prefix(MissionDeck.activeCount))
+        while kept.count < MissionDeck.activeCount {
+            serial += 1
+            kept.append(MissionDeck.make(serial: serial, level: level, avoiding: kept.map { $0.kind }))
+        }
+        return kept
     }
 
     private func repairedLevels() -> [String: Int] {

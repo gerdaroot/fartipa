@@ -19,6 +19,12 @@ final class BikeWorld {
     private static let fogStart: CGFloat = 45
     private static let thermalCheckSeconds = 2.0
     private static let downgradeCooldown = 3.0
+    /// The road bend is recomputed (and pushed to every bendable material) only after the ride has
+    /// moved this far. The far end of the road then shifts by a few centimetres at most, while most
+    /// frames skip two key-value writes per material.
+    private static let bendStepMetres = 1.5
+    static let normalFPS = 60
+    static let hotFPS = 30
 
     let view: SCNView
     private let sceneView: BikeSceneView
@@ -46,6 +52,17 @@ final class BikeWorld {
     private var monitor = SlowFrameMonitor()
     private var thermalClock = 0.0
     private var lastDowngrade = -Double.infinity
+    /// Frames per second the 3D view is asked for: 60, or 30 while the phone is seriously hot.
+    /// The game loop should follow `view.preferredFramesPerSecond` (the same value).
+    private(set) var targetFPS = BikeWorld.normalFPS
+    private(set) var settings = RenderSettings.of(.medium)
+    /// True between a live `render` and the next `renderIdle`: shader-recompiling changes wait.
+    private var isRiding = false
+    private var bend = BendAmount.flat
+    private var bendDistance = -Double.infinity
+    /// Shop bikes and riders still to be built after loading, a few per idle second.
+    var lazyRigs: [(bike: BikeStyle, rider: RiderStyle)] = []
+    var lazyRigClock = 0.0
 
     // Loading state, driven by `prepare(completion:)`.
     var prepareState = PrepareState.idle
@@ -80,13 +97,14 @@ final class BikeWorld {
         prepareSkies()
         beginAsset()
         city.paintSigns { [weak self] in self?.endAsset() }
+        PerfWorldLink.world = self
     }
 
     private func configureView() {
         view.scene = scene
         view.pointOfView = cameraRig.cameraNode
         view.rendersContinuously = true
-        view.preferredFramesPerSecond = 60
+        view.preferredFramesPerSecond = Self.normalFPS
         view.isPlaying = true
         view.antialiasingMode = .none
         scene.fogStartDistance = Self.fogStart
@@ -132,7 +150,10 @@ final class BikeWorld {
         draw(frame, dt: dt, step: step, district: run.district.index) { bend in
             objects.update(run, bend: bend, clock: clock, dt: step, live: isLive)
         }
-        if isLive { watchFrame(dt) }
+        if isLive {
+            isRiding = true
+            watchFrame(dt)
+        }
     }
 
     /// Hub and garage: the bike cruises an empty road.
@@ -151,6 +172,12 @@ final class BikeWorld {
         frame.rev = 0
         frame.clock = clock
         draw(frame, dt: dt, step: dt, district: 0) { _ in }
+        if isRiding {
+            isRiding = false
+            syncMaterials()
+        }
+        watchThermal(dt)
+        buildLazyRig(dt: dt)
     }
 
     /// One-shot effects for this frame's events.
@@ -176,20 +203,56 @@ final class BikeWorld {
 
     /// Switches every quality setting at once: render scale, MSAA, HDR and bloom, colour grading,
     /// shadows, particle budgets, fog and draw distance.
+    /// Pooled objects past `objectsAhead` are hidden, far streams lose their splash detail, the rut
+    /// uses fewer strips, and on the low tier world materials drop to Lambert (applied at once
+    /// outside a ride, otherwise when the ride ends, since it recompiles shaders).
     func applyTier(_ newTier: RenderTier) {
         tier = newTier
         let settings = RenderSettings.of(newTier)
-        view.antialiasingMode = settings.multisampling ? .multisampling4X : .none
+        self.settings = settings
+        let mode: SCNAntialiasingMode = settings.multisampling ? .multisampling4X : .none
+        if view.antialiasingMode != mode { view.antialiasingMode = mode }
         sceneView.renderScale = settings.scaleShare
         cameraRig.configure(settings)
         lighting.setShadows(settings.shadows)
         scene.fogEndDistance = settings.fogEnd
         city.setDrawDistance(settings.decorAhead)
+        PoolCulling.aheadLimit = settings.objectsAhead
+        PoolCulling.detailAhead = settings.detailAhead
+        RutTrail.activeSegments = settings.rutSegments
         let budget = settings.particleBudget
         bursts.budget = budget
         objects.budget = budget
         bike.budget = budget
         cameraRig.budget = budget
+        monitor.restart()
+        if !isRiding { syncMaterials() }
+    }
+
+    /// Puts the world materials in the shading model the tier wants; warms the new shaders up in the
+    /// background when loading is already over.
+    private func syncMaterials() {
+        let materials = library.allMaterials
+        guard PerfMaterialThrift.apply(cheap: settings.cheapMaterials, to: materials) else { return }
+        guard prepareState == .done else { return }
+        view.prepare(materials as [Any], completionHandler: nil)
+    }
+
+    /// 30 fps while the phone is seriously hot, 60 otherwise. Checked every couple of seconds.
+    private func watchThermal(_ dt: Double) {
+        thermalClock += max(0, dt)
+        guard thermalClock >= Self.thermalCheckSeconds else { return }
+        thermalClock = 0
+        let hot: Bool
+        switch ProcessInfo.processInfo.thermalState {
+        case .serious, .critical: hot = true
+        default: hot = false
+        }
+        if hot, autoQuality, isRiding, prepareState != .running { reportSlowFrames() }
+        let wanted = hot ? Self.hotFPS : Self.normalFPS
+        guard wanted != targetFPS else { return }
+        targetFPS = wanted
+        view.preferredFramesPerSecond = wanted
         monitor.restart()
     }
 
@@ -208,13 +271,18 @@ final class BikeWorld {
         SCNTransaction.begin()
         SCNTransaction.disableActions = true
         SCNTransaction.animationDuration = 0
-        let bend = WorldBend.amount(atDistance: frame.distance)
-        library.applyBend(bend)
+        PoolCulling.beginFrame()
+        if abs(frame.distance - bendDistance) >= Self.bendStepMetres {
+            bendDistance = frame.distance
+            bend = WorldBend.amount(atDistance: frame.distance)
+            library.applyBend(bend)
+        }
         road.update(distance: frame.distance)
         city.update(distance: frame.distance, time: clock)
         objectsUpdate(bend)
         bike.update(frame, dt: step)
-        lighting.follow(bikeX: frame.x)
+        // The moon only moves to keep the shadow map on the bike; without shadows it can stay.
+        if settings.shadows { lighting.follow(bikeX: frame.x) }
         let look = bend.offset(ahead: Self.lookAheadMetres).x * Self.lookAheadShare
         cameraRig.update(bikeX: frame.x, rev: frame.rev, boosting: frame.boosting, lookAhead: look, dt: dt, clock: clock)
         updatePalette(district: district, dt: dt)
@@ -222,16 +290,11 @@ final class BikeWorld {
     }
 
     /// Automatic quality: slow windows of live frames, or a hot phone, step the tier down.
+    /// Frame times are judged against the current target, so the 30 fps heat cap is not "slow".
     private func watchFrame(_ dt: Double) {
+        watchThermal(dt)
         guard autoQuality, prepareState != .running else { return }
-        if monitor.record(dt) { reportSlowFrames() }
-        thermalClock += dt
-        guard thermalClock >= Self.thermalCheckSeconds else { return }
-        thermalClock = 0
-        switch ProcessInfo.processInfo.thermalState {
-        case .serious, .critical: reportSlowFrames()
-        default: break
-        }
+        if monitor.record(dt, frameBudget: 1 / Double(targetFPS)) { reportSlowFrames() }
     }
 
     // MARK: - Palette and sky
@@ -332,26 +395,5 @@ final class BikeWorld {
         } else {
             assetWaiters.append(body)
         }
-    }
-}
-
-/// An `SCNView` that renders below the screen's native resolution when asked. On a 3x screen it
-/// never goes above 2x; lower tiers use a share of that. Fewer pixels is the biggest GPU saving.
-final class BikeSceneView: SCNView {
-    /// Share of the (2x-capped) native scale to render at.
-    var renderScale: CGFloat = 1 {
-        didSet { applyScale() }
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        applyScale()
-    }
-
-    private func applyScale() {
-        let native = window?.screen.scale ?? traitCollection.displayScale
-        let capped = min(max(native, 1), RenderSettings.maxNativeScale)
-        let wanted = max(1, (capped * renderScale * 4).rounded() / 4)
-        if abs(contentScaleFactor - wanted) > 0.01 { contentScaleFactor = wanted }
     }
 }

@@ -26,10 +26,10 @@ targets:
     info:
       path: ios/Biker/Info.plist
       properties:
-        CFBundleDisplayName: Пиздец крутой байкер 3Д
+        CFBundleDisplayName: Пиздец супер крутой байкер 3Д
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        NSHumanReadableCopyright: "Авторы: gerda, okurok51, yamoo"
+        NSHumanReadableCopyright: "Авторы: gerda, okurok51, yamoo, xanaxx55"
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UILaunchScreen:

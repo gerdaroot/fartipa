@@ -211,3 +211,109 @@ struct PopupStack: View {
         }
     }
 }
+
+/// «ПРЫГ»: the fart hop, or a flip while flying off a ramp. The ring fills while it recharges.
+struct JumpButton: View {
+    let readiness: Double
+    let canJump: Bool
+    let isAirborne: Bool
+    let action: () -> Void
+
+    private static let size: CGFloat = 74
+
+    var body: some View {
+        let size = Self.size
+        let flipReady = canJump && isAirborne
+        Button(action: action) {
+            ZStack {
+                Circle().fill(Color.black.opacity(0.55))
+                Circle()
+                    .trim(from: 0, to: max(0, min(1, readiness)))
+                    .stroke(flipReady ? Palette.goldTop : Palette.piss, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(3)
+                Circle()
+                    .fill(LinearGradient(
+                        colors: canJump ? [Palette.goldTop, Palette.goldBottom] : [Palette.steelTop, Palette.steelBottom],
+                        startPoint: .top, endPoint: .bottom
+                    ))
+                    .overlay(Circle().strokeBorder(Palette.outline, lineWidth: 3))
+                    .padding(10)
+                VStack(spacing: -1) {
+                    Image(systemName: flipReady ? "arrow.counterclockwise" : "arrow.up")
+                        .font(.system(size: 17, weight: .black))
+                    Text(flipReady ? "САЛЬТО" : "ПРЫГ")
+                        .font(GameFont.title(flipReady ? 11 : 15))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .foregroundStyle(Palette.cream)
+                .outlined(width: 1.5)
+            }
+            .frame(width: size, height: size)
+            .opacity(canJump ? 1 : 0.7)
+        }
+        .buttonStyle(PressScaleStyle())
+        .accessibilityLabel(flipReady ? "Сальто" : "Прыжок")
+        .accessibilityHint("Перепрыгивает кучи и люки. В полёте с трамплина — сальто. Можно свайпнуть вверх.")
+    }
+}
+
+/// The big banner when a road event starts.
+struct RoadEventBanner: View {
+    let banner: RideBanner
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(banner.title)
+                .font(GameFont.title(32))
+                .foregroundStyle(Palette.goldTop)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .outlined(width: 3)
+            Text(banner.subtitle)
+                .font(GameFont.label(15))
+                .foregroundStyle(Palette.cream)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+                .outlined(width: 1.5)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(PanelBackground(cornerRadius: 18))
+        .rotationEffect(.degrees(reduceMotion ? 0 : -2))
+        .transition(reduceMotion ? .opacity : .scale(scale: 0.5).combined(with: .opacity))
+        .id(banner.id)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A small chip while a road event runs: its name and the seconds left.
+struct RoadEventTimer: View {
+    let kind: RoadEventKind
+    let seconds: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "bolt.fill")
+            Text(kind.title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text("\(seconds)").monospacedDigit()
+        }
+        .font(GameFont.label(14))
+        .foregroundStyle(Palette.ink)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(Capsule().fill(LinearGradient(
+            colors: [Palette.goldTop, Palette.goldBottom], startPoint: .top, endPoint: .bottom
+        )))
+        .overlay(Capsule().strokeBorder(Palette.outline, lineWidth: 2))
+        .allowsHitTesting(false)
+        .accessibilityElement()
+        .accessibilityLabel("\(kind.title): ещё \(seconds) секунд")
+    }
+}

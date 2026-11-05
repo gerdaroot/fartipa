@@ -1,0 +1,6 @@
+{
+  "images": [
+    { "idiom": "universal", "filename": "menu-backdrop.jpg", "scale": "3x" }
+  ],
+  "info": { "author": "xcode", "version": 1 }
+}

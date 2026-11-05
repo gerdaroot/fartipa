@@ -7,65 +7,78 @@ struct RoadSegment: Equatable {
     var piles: [PoopPile] = []
     var coins: [RoadCoin] = []
     var pickups: [RoadPickup] = []
+    var ramps: [RoadRamp] = []
+    var manholes: [Manhole] = []
+    /// A road event that starts with this segment.
+    var event: RoadEvent?
+}
+
+/// The numbers one segment is laid out with: the district's, changed by a road event under way.
+struct RoadTuning: Equatable {
+    static let busyTwoLaneChance = 0.5
+    static let pissHourWarning = 1.5
+    static let pissHourGap = 0.9
+    static let coinRainGap = 1.15
+
+    let difficulty: DistrictDifficulty
+    let event: RoadEventKind?
+    let gapSeconds: Double
+    let twoLaneChance: Double
+    let warningScale: Double
+
+    init(_ difficulty: DistrictDifficulty, event: RoadEventKind?) {
+        self.difficulty = difficulty
+        self.event = event
+        let busy = event == .pissHour || event == .trafficWave
+        twoLaneChance = busy ? max(difficulty.twoLaneChance, Self.busyTwoLaneChance) : difficulty.twoLaneChance
+        warningScale = difficulty.warningScale * (event == .pissHour ? Self.pissHourWarning : 1)
+        switch event {
+        case .coinRain?: gapSeconds = max(difficulty.gapSeconds, Self.coinRainGap)
+        case .pissHour?: gapSeconds = difficulty.gapSeconds * Self.pissHourGap
+        default: gapSeconds = difficulty.gapSeconds
+        }
+    }
 }
 
 /// Lays out the road from a seed. The layout depends only on the seed and loadout, never on how
 /// the rider rides. Obstacle patterns never overlap along the road, and each one keeps a lane open,
-/// so there is always a way through.
+/// so there is always a way through. The opening is fixed for a fun first half-minute: coins at
+/// once, a ramp at `introRampAt`, and the coin rain as the first road event.
+/// Pattern builders are in `RoadGenerator+Patterns.swift`, coins in `RoadGenerator+Coins.swift`;
+/// their state is internal only so those files can share it.
 struct RoadGenerator: Equatable {
-    private enum Pattern {
-        case empty, piles, traffic, sweep, doubleRow, streamRow
+    enum Pattern: Equatable {
+        case empty, piles, traffic, sweep, doubleRow, streamRow, ramp, manholes
     }
 
-    private enum CoinShape {
-        case line, weave, arc
-    }
+    static let firstSegmentAt = 45.0
+    static let introRampAt = 230.0
+    static let shortestGap = 24.0
+    static let laneCount = 3
+    static let middleLane = 1
+    static let evenOdds = 0.5
+    static let fullCircle = 2 * Double.pi
+    private static let rainPileChance = 0.3
+    private static let pissHourDoubleChance = 0.3
+    private static let waveRampChance = 0.3
+    private static let holePileChance = 0.25
 
-    private static let firstSegmentAt = 70.0
-    private static let shortestGap = 24.0
-    private static let laneCount = 3
-    private static let middleLane = 1
-    private static let evenOdds = 0.5
-    private static let fullCircle = 2 * Double.pi
-    /// Seconds between the two rows of a double row: enough to shift by one lane.
-    private static let doubleRowSeconds = 0.7
-    private static let doubleRowShortest = 14.0
-    /// How far a vehicle may roll from where it was placed.
-    private static let vehicleTravel = 35.0
-    private static let pileJitter = 0.4
-    private static let coinChance = 0.7
-    private static let coinSpacingSeconds = 0.09
-    private static let coinSpacingShortest = 3.0
-    private static let coinPatternGap = 8.0
-    private static let coinStartShare = 0.25
-    private static let lineShare = 0.4
-    private static let weaveShare = 0.35
-    private static let lineCoins = 8
-    private static let weaveCoins = 10
-    private static let arcCoins = 9
-    private static let weaveAmplitude = 2.4
-    private static let weaveWaves = 1.5
-    private static let goldenChance = 0.12
-    private static let pickupChance = 0.06
-    private static let pickupStartShare = 0.5
-    /// The relative odds of each pickup, in the order of `PickupKind.allCases`.
-    private static let pickupOdds: [(kind: PickupKind, odds: Double)] = [
-        (kind: .magnet, odds: 3), (kind: .shield, odds: 3), (kind: .coinDoubler, odds: 2),
-        (kind: .boostRefill, odds: 3), (kind: .repair, odds: 1),
-    ]
-
-    private var random: SplitMix
-    private var nextId = 1
-    private var nextRowId = 1
-    private var nextCoinsAt = 0.0
+    var random: SplitMix
+    var nextId = 1
+    var nextRowId = 1
+    var nextCoinsAt = 0.0
     /// Where the next segment starts.
     private(set) var nextZ = RoadGenerator.firstSegmentAt
-    private let topSpeed: Double
-    private let warningSeconds: Double
-    private let pickupRate: Double
+    let topSpeed: Double
+    let warningSeconds: Double
+    let pickupRate: Double
+    private var planner: RoadEventPlanner
+    private var hasOpened = false
+    private var hasIntroRamp = false
 
     init(seed: UInt64, loadout: RunLoadout) {
         random = SplitMix(seed: seed)
+        planner = RoadEventPlanner(seed: seed)
         topSpeed = loadout.topSpeed
         warningSeconds = loadout.warningSeconds
         pickupRate = loadout.pickupRate
@@ -74,37 +87,39 @@ struct RoadGenerator: Equatable {
     /// Makes the next stretch of road and moves `nextZ` past it.
     mutating func nextSegment() -> RoadSegment {
         let z = nextZ
-        let difficulty = District.at(distance: z).difficulty
         let speed = BikeRun.cruisingSpeed(atDistance: z, topSpeed: topSpeed)
-        let gap = max(Self.shortestGap, speed * difficulty.gapSeconds)
         var segment = RoadSegment()
-        var extent = 0.0
-        switch choosePattern(difficulty) {
-        case .empty:
-            break
-        case .piles:
-            segment.piles = makePiles(at: z, difficulty)
-        case .traffic:
-            let vehicles = makeTraffic(at: z, difficulty)
-            segment.vehicles = vehicles
-            extent = Self.vehicleTravel + 2 * (vehicles.map { $0.kind.halfLength }.max() ?? 0)
-        case .sweep:
-            segment.streams = [makeSweep(at: z, difficulty)]
-        case .doubleRow:
-            extent = max(Self.doubleRowShortest, speed * Self.doubleRowSeconds)
-            segment.streams = makeDoubleRow(at: z, secondAt: z + extent, difficulty)
-        case .streamRow:
-            segment.streams = makeStreamRow(at: z, difficulty)
-        }
-        segment.coins = makeCoinsIfDue(at: z + extent, gap: gap, speed: speed)
+        segment.event = planner.startIfDue(at: z, speed: speed)
+        let tuning = RoadTuning(District.at(distance: z).difficulty, event: planner.active(at: z)?.kind)
+        let gap = max(Self.shortestGap, speed * tuning.gapSeconds)
+        let opening = !hasOpened
+        let pattern = choosePattern(tuning, at: z)
+        hasOpened = true
+        let extent = fill(&segment, with: pattern, at: z, speed: speed, tuning)
+        segment.coins += makeCoinsIfDue(at: z + extent, gap: gap, speed: speed, tuning, forced: opening)
         segment.pickups = makePickupIfLucky(at: z + extent, gap: gap)
         nextZ = z + extent + gap
         return segment
     }
 
-    // MARK: - Obstacles
+    private mutating func choosePattern(_ tuning: RoadTuning, at z: Double) -> Pattern {
+        if !hasOpened { return .empty }
+        if !hasIntroRamp, z >= Self.introRampAt, tuning.event == nil {
+            hasIntroRamp = true
+            return .ramp
+        }
+        switch tuning.event {
+        case .coinRain?: return random.chance(Self.rainPileChance) ? .piles : .empty
+        case .pissHour?:
+            let doubles = tuning.difficulty.doubleRowShare > 0 && random.chance(Self.pissHourDoubleChance)
+            return doubles ? .doubleRow : .streamRow
+        case .trafficWave?: return random.chance(Self.waveRampChance) ? .ramp : .traffic
+        case .manholes?: return random.chance(Self.holePileChance) ? .piles : .manholes
+        case nil: return choosePlainPattern(tuning.difficulty)
+        }
+    }
 
-    private mutating func choosePattern(_ difficulty: DistrictDifficulty) -> Pattern {
+    private mutating func choosePlainPattern(_ difficulty: DistrictDifficulty) -> Pattern {
         let roll = random.unit()
         let shares: [(pattern: Pattern, share: Double)] = [
             (pattern: .empty, share: difficulty.emptyShare),
@@ -112,6 +127,8 @@ struct RoadGenerator: Equatable {
             (pattern: .traffic, share: difficulty.trafficShare),
             (pattern: .sweep, share: difficulty.sweepShare),
             (pattern: .doubleRow, share: difficulty.doubleRowShare),
+            (pattern: .ramp, share: difficulty.rampShare),
+            (pattern: .manholes, share: difficulty.manholeShare),
         ]
         var cumulative = 0.0
         for entry in shares {
@@ -121,164 +138,47 @@ struct RoadGenerator: Equatable {
         return .streamRow
     }
 
-    /// One or two of the three lanes, never all of them.
-    private mutating func chooseBlockedLanes(twoLaneChance: Double) -> [Int] {
-        let openLane = random.int(below: Self.laneCount)
-        if random.chance(twoLaneChance) {
-            return (0..<Self.laneCount).filter { $0 != openLane }
+    /// Puts the pattern's obstacles into the segment. Returns how far along the road they reach.
+    private mutating func fill(
+        _ segment: inout RoadSegment, with pattern: Pattern, at z: Double, speed: Double, _ tuning: RoadTuning
+    ) -> Double {
+        switch pattern {
+        case .empty:
+            return 0
+        case .piles:
+            segment.piles = makePiles(at: z, tuning)
+            return 0
+        case .traffic:
+            let vehicles = makeTraffic(at: z, tuning)
+            segment.vehicles = vehicles
+            return Self.vehicleTravel + 2 * (vehicles.map { $0.kind.halfLength }.max() ?? 0)
+        case .sweep:
+            segment.streams = [makeSweep(at: z, tuning)]
+            return 0
+        case .doubleRow:
+            let extent = max(Self.doubleRowShortest, speed * Self.doubleRowSeconds)
+            segment.streams = makeDoubleRow(at: z, secondAt: z + extent, tuning)
+            return extent
+        case .streamRow:
+            segment.streams = makeStreamRow(at: z, tuning)
+            return 0
+        case .ramp:
+            return makeRampJump(into: &segment, at: z, speed: speed, tuning)
+        case .manholes:
+            segment.manholes = makeManholes(at: z, tuning)
+            return 0
         }
-        return [(openLane + 1 + random.int(below: Self.laneCount - 1)) % Self.laneCount]
     }
 
-    private mutating func takeId() -> Int {
+    mutating func takeId() -> Int {
         let id = nextId
         nextId += 1
         return id
     }
 
-    private mutating func takeRowId() -> Int {
+    mutating func takeRowId() -> Int {
         let id = nextRowId
         nextRowId += 1
         return id
-    }
-
-    private mutating func makeStream(
-        lane: Int, z: Double, rowId: Int, motion: StreamMotion, _ difficulty: DistrictDifficulty
-    ) -> PissStream {
-        let baseX = motion == .sweep ? 0.0 : BikeRun.laneX[lane]
-        return PissStream(
-            id: takeId(), rowId: rowId, motion: motion, baseX: baseX, z: z,
-            phase: random.unit() * Self.fullCircle,
-            warningSeconds: warningSeconds * difficulty.warningScale
-        )
-    }
-
-    private mutating func makeStreamRow(at z: Double, _ difficulty: DistrictDifficulty) -> [PissStream] {
-        let lanes = chooseBlockedLanes(twoLaneChance: difficulty.twoLaneChance)
-        let motion: StreamMotion = random.chance(difficulty.swayChance) ? .sway : .still
-        let rowId = takeRowId()
-        var row: [PissStream] = []
-        for lane in lanes {
-            row.append(makeStream(lane: lane, z: z, rowId: rowId, motion: motion, difficulty))
-        }
-        return row
-    }
-
-    private mutating func makeSweep(at z: Double, _ difficulty: DistrictDifficulty) -> PissStream {
-        let rowId = takeRowId()
-        return makeStream(lane: Self.middleLane, z: z, rowId: rowId, motion: .sweep, difficulty)
-    }
-
-    /// Two close rows of two streams each. The open lane shifts by exactly one.
-    private mutating func makeDoubleRow(
-        at z: Double, secondAt secondZ: Double, _ difficulty: DistrictDifficulty
-    ) -> [PissStream] {
-        let firstOpen = random.int(below: Self.laneCount)
-        let shift = random.chance(Self.evenOdds) ? 1 : -1
-        let secondOpen = firstOpen == Self.middleLane ? Self.middleLane + shift : Self.middleLane
-        let first = makeTwoStreamRow(openLane: firstOpen, z: z, difficulty)
-        let second = makeTwoStreamRow(openLane: secondOpen, z: secondZ, difficulty)
-        return first + second
-    }
-
-    private mutating func makeTwoStreamRow(
-        openLane: Int, z: Double, _ difficulty: DistrictDifficulty
-    ) -> [PissStream] {
-        let rowId = takeRowId()
-        var row: [PissStream] = []
-        for lane in 0..<Self.laneCount where lane != openLane {
-            row.append(makeStream(lane: lane, z: z, rowId: rowId, motion: .still, difficulty))
-        }
-        return row
-    }
-
-    private mutating func makeTraffic(at z: Double, _ difficulty: DistrictDifficulty) -> [Vehicle] {
-        let lanes = chooseBlockedLanes(twoLaneChance: difficulty.twoLaneChance)
-        var vehicles: [Vehicle] = []
-        for lane in lanes {
-            let kind = VehicleKind.allCases[random.int(below: VehicleKind.allCases.count)]
-            let start = z + kind.halfLength
-            vehicles.append(
-                Vehicle(id: takeId(), kind: kind, x: BikeRun.laneX[lane], z: start, limitZ: start + Self.vehicleTravel)
-            )
-        }
-        return vehicles
-    }
-
-    private mutating func makePiles(at z: Double, _ difficulty: DistrictDifficulty) -> [PoopPile] {
-        let lanes = chooseBlockedLanes(twoLaneChance: difficulty.twoLaneChance)
-        var piles: [PoopPile] = []
-        for lane in lanes {
-            let jitter = (random.unit() * 2 - 1) * Self.pileJitter
-            piles.append(PoopPile(id: takeId(), x: BikeRun.laneX[lane] + jitter, z: z))
-        }
-        return piles
-    }
-
-    // MARK: - Coins and pickups
-
-    private mutating func makeCoinsIfDue(at z: Double, gap: Double, speed: Double) -> [RoadCoin] {
-        let wanted = random.chance(Self.coinChance)
-        let start = z + gap * Self.coinStartShare
-        guard wanted, start >= nextCoinsAt else { return [] }
-        let spacing = max(Self.coinSpacingShortest, speed * Self.coinSpacingSeconds)
-        let roll = random.unit()
-        let shape: CoinShape = roll < Self.lineShare ? .line : (roll < Self.lineShare + Self.weaveShare ? .weave : .arc)
-        let coins = makeCoins(shape, from: start, spacing: spacing)
-        nextCoinsAt = (coins.last?.z ?? start) + Self.coinPatternGap
-        return coins
-    }
-
-    private mutating func makeCoins(_ shape: CoinShape, from start: Double, spacing: Double) -> [RoadCoin] {
-        let count = coinCount(shape)
-        let lane = BikeRun.laneX[random.int(below: Self.laneCount)]
-        let endLane = BikeRun.laneX[random.int(below: Self.laneCount)]
-        let goldenIndex = random.chance(Self.goldenChance) ? count / 2 : -1
-        var coins: [RoadCoin] = []
-        for index in 0..<count {
-            let progress = Double(index) / Double(count - 1)
-            coins.append(
-                RoadCoin(
-                    id: takeId(),
-                    x: Self.coinX(shape, progress: progress, lane: lane, endLane: endLane),
-                    z: start + Double(index) * spacing,
-                    isGolden: index == goldenIndex
-                )
-            )
-        }
-        return coins
-    }
-
-    private func coinCount(_ shape: CoinShape) -> Int {
-        switch shape {
-        case .line: return Self.lineCoins
-        case .weave: return Self.weaveCoins
-        case .arc: return Self.arcCoins
-        }
-    }
-
-    private static func coinX(_ shape: CoinShape, progress: Double, lane: Double, endLane: Double) -> Double {
-        switch shape {
-        case .line:
-            return lane
-        case .weave:
-            return weaveAmplitude * sin(progress * weaveWaves * fullCircle)
-        case .arc:
-            return lane + (endLane - lane) * sin(progress * Double.pi / 2)
-        }
-    }
-
-    private mutating func makePickupIfLucky(at z: Double, gap: Double) -> [RoadPickup] {
-        guard random.chance(Self.pickupChance * pickupRate) else { return [] }
-        let lane = BikeRun.laneX[random.int(below: Self.laneCount)]
-        let total = Self.pickupOdds.reduce(0.0) { $0 + $1.odds }
-        var roll = random.unit() * total
-        var chosen = PickupKind.magnet
-        for entry in Self.pickupOdds {
-            chosen = entry.kind
-            roll -= entry.odds
-            if roll < 0 { break }
-        }
-        return [RoadPickup(id: takeId(), kind: chosen, x: lane, z: z + gap * Self.pickupStartShare)]
     }
 }

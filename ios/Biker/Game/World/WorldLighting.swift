@@ -6,8 +6,12 @@ import UIKit
 /// into a small map with tight bounds around it.
 @MainActor
 final class WorldLighting {
-    private static let moonIntensity: CGFloat = 520
-    private static let ambientIntensity: CGFloat = 180
+    /// Bright enough that the photo textures read outside the headlight; night comes from the
+    /// colours, fog and sky rather than from crushing everything to black.
+    private static let moonIntensity: CGFloat = 820
+    private static let ambientIntensity: CGFloat = 380
+    /// Share of white mixed into the district's ambient colour (the raw colours are very dark).
+    private static let ambientLift = 0.35
     private static let headlightIntensity: CGFloat = 2600
     private static let shadowArea = 6.0
     private static let shadowMapSide: CGFloat = 512
@@ -59,7 +63,7 @@ final class WorldLighting {
 
     func apply(_ palette: WorldPalette) {
         moon.color = palette.moon.mixed(with: ColorValue(1, 1, 1), 0.3).ui
-        ambient.color = palette.ambient.ui
+        ambient.color = palette.ambient.mixed(with: ColorValue(1, 1, 1), Self.ambientLift).ui
     }
 
     func setShadows(_ enabled: Bool) {

@@ -15,7 +15,7 @@ enum PissArc {
     /// Rings of vertices along the whole stream.
     static let ringCount = 72
     /// The arriving stream is cut into pieces of this many ring gaps.
-    static let ringsPerPiece = 3
+    static let ringsPerPiece = 4
     static let pieceCount = ringCount / ringsPerPiece
     /// Rings from here down use the beaded material: the stream breaks into drops.
     static let breakRing = 46

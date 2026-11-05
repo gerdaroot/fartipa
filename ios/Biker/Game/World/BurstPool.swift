@@ -25,6 +25,8 @@ final class BurstPool {
     private static let emitSeconds: CGFloat = 0.06
     /// Copies of each recipe, so back-to-back bursts of one kind do not share a system.
     private static let copies = 2
+    /// Bursts of this many particles or fewer are never thinned by the budget.
+    private static let fewParticles: CGFloat = 2
 
     private final class Prepared {
         let systems: [SCNParticleSystem]
@@ -40,8 +42,8 @@ final class BurstPool {
 
     private var nodes: [SCNNode] = []
     private var next = 0
-    private var prepared: [String: [Prepared]] = [:]
-    private var turn: [String: Int] = [:]
+    private var prepared: [Int: [Prepared]] = [:]
+    private var turn: [Int: Int] = [:]
     var budget: CGFloat = 1
 
     init(parent: SCNNode) {
@@ -90,7 +92,9 @@ final class BurstPool {
         node.removeAllParticleSystems()
         node.position = position
         for (offset, system) in chosen.systems.enumerated() {
-            system.birthRate = chosen.rates[offset] * budget
+            let rate = chosen.rates[offset]
+            // Single-particle rings keep their rate: a budget below 1 would emit nothing at all.
+            system.birthRate = rate * Self.emitSeconds <= Self.fewParticles ? rate : rate * budget
             system.reset()
             node.addParticleSystem(system)
         }
@@ -105,19 +109,31 @@ final class BurstPool {
         }
     }
 
-    private static func key(_ kind: BurstKind) -> String {
+    /// A number per distinct look; no string is built when a burst fires.
+    private static func key(_ kind: BurstKind) -> Int {
         switch kind {
-        case .coin: return "coin"
-        case .goldenCoin: return "golden"
-        case .hitSplash: return "hit"
-        case .skid: return "skid"
-        case .nearMiss(let side): return side < 0 ? "missL" : "missR"
-        case .pickup(let color): return String(format: "pickup-%.3f-%.3f-%.3f", color.r, color.g, color.b)
-        case .boostFlash: return "boost"
-        case .shieldBreak: return "shield"
-        case .debris: return "debris"
-        case .bigSplash: return "bigSplash"
+        case .coin: return 0
+        case .goldenCoin: return 1
+        case .hitSplash: return 2
+        case .skid: return 3
+        case .nearMiss(let side): return side < 0 ? 4 : 5
+        case .pickup(let color): return pickupKey(color)
+        case .boostFlash: return 6
+        case .shieldBreak: return 7
+        case .debris: return 8
+        case .bigSplash: return 9
         }
+    }
+
+    /// Pickup colours packed into one number above the fixed kinds.
+    private static func pickupKey(_ color: ColorValue) -> Int {
+        let red = channel(color.r) << 16
+        let green = channel(color.g) << 8
+        return 1_000 + red + green + channel(color.b)
+    }
+
+    private static func channel(_ value: Double) -> Int {
+        Int((max(0, min(1, value)) * 255).rounded())
     }
 
     // MARK: - Recipes

@@ -1,136 +1,180 @@
 import SwiftUI
 
-/// The main menu over the bike cruising an empty road.
+/// The main menu. The 3D bike cruises behind it, so the middle of the screen stays empty:
+/// wallet and level on top, the sticker logo, then the big «ПОГНАЛИ» and a nav row at the bottom.
+/// Everything here is static between taps; nothing animates continuously.
 struct HubScreen: View {
     @ObservedObject var game: BikeGame
+    @State private var showsSettings = false
+    @State private var logoIn = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let secretPressSeconds = 1.5
 
     var body: some View {
-        VStack(spacing: 12) {
-            topBar
-            HubTitle(onSecret: { game.togglePerfOverlay() })
-                .padding(.top, 8)
-            if game.profile.bestScore > 0 { record }
-            Spacer(minLength: 8)
-            if game.canClaimDaily { dailyButton }
-            MessageBanner(notices: game.notices)
-            buttons
+        ZStack(alignment: .top) {
+            MenuVignette()
+            VStack(spacing: 10) {
+                MenuHubTopBar(
+                    level: game.profile.level,
+                    coins: game.profile.coins,
+                    settingsOn: showsSettings,
+                    onSettings: { toggleSettings() }
+                )
+                logo
+                chips
+                Spacer(minLength: 12)
+                MessageBanner(notices: game.notices)
+                playButton
+                navRow
+                MenuAuthorsLine()
+            }
+            .frame(maxWidth: 440)
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
+            if showsSettings {
+                MenuSettingsCard(game: game, close: { toggleSettings() })
+                    .padding(.top, 62)
+                    .padding(.horizontal, 16)
+                    .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .topTrailing)))
+                    .zIndex(1)
+            }
         }
-        .frame(maxWidth: 420)
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-        .padding(.bottom, 10)
-        .background(alignment: .bottom) {
-            LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 320)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
+        .onAppear {
+            guard !logoIn else { return }
+            if reduceMotion {
+                logoIn = true
+            } else {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.62)) { logoIn = true }
+            }
         }
     }
 
-    private var topBar: some View {
-        HStack {
-            RoundIconButton(
-                symbol: game.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                label: game.isMuted ? "Включить звук" : "Выключить звук",
-                action: { game.toggleMute() }
-            )
-            Spacer()
-            CoinBadge(amount: game.profile.coins)
-        }
+    private var logo: some View {
+        MenuLogo()
+            .frame(maxWidth: 380, maxHeight: 190)
+            .padding(.horizontal, 6)
+            .scaleEffect(logoIn ? 1 : 0.8)
+            .opacity(logoIn ? 1 : 0)
+            .onLongPressGesture(minimumDuration: Self.secretPressSeconds, perform: { game.togglePerfOverlay() })
     }
 
-    private var record: some View {
+    private var chips: some View {
         HStack(spacing: 8) {
-            Image(systemName: "trophy.fill").foregroundStyle(Palette.gold)
-            Text("РЕКОРД  \(game.profile.bestScore)")
-                .font(GameFont.styled(.headline, weight: .black).monospacedDigit())
-                .foregroundStyle(Palette.cream)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Capsule().fill(Palette.tray))
-        .overlay(Capsule().strokeBorder(Palette.gold.opacity(0.5), lineWidth: 1.5))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Рекорд: \(game.profile.bestScore) очков")
-    }
-
-    private var dailyButton: some View {
-        Button(action: { game.claimDaily() }) {
-            HStack(spacing: 10) {
-                Image(systemName: "gift.fill")
-                Text("Ежедневный подгон  +\(game.dailyRewardPreview)")
+            MenuStatChip(
+                symbol: "trophy.fill",
+                title: "РЕКОРД",
+                value: game.profile.bestScore > 0 ? "\(game.profile.bestScore)" : "—"
+            )
+            if game.profile.dailyStreak > 0 {
+                MenuStatChip(
+                    symbol: "flame.fill",
+                    title: "СЕРИЯ",
+                    value: "\(game.profile.dailyStreak) дн.",
+                    tint: Palette.neonPink
+                )
             }
         }
-        .buttonStyle(ChunkyButtonStyle(kind: .green, height: 52, fontSize: 17))
-        .accessibilityLabel("Забрать ежедневный подгон: \(game.dailyRewardPreview) говнокоинов")
     }
 
-    private var buttons: some View {
-        VStack(spacing: 10) {
-            Button(action: { game.startRide() }) {
-                Label("Погнали!", systemImage: "flame.fill")
-            }
-            .buttonStyle(ChunkyButtonStyle(kind: .gold, height: 72, fontSize: 30))
+    private var playButton: some View {
+        Button(action: { game.startRide() }) {
             HStack(spacing: 10) {
-                Button(action: { game.openGarage() }) {
-                    Label("Гараж", systemImage: "bicycle")
-                }
-                .buttonStyle(ChunkyButtonStyle(kind: .red, height: 58, fontSize: 19))
-                Button(action: { game.openUpgrades() }) {
-                    Label("Прокачка", systemImage: "wrench.and.screwdriver.fill")
-                }
-                .buttonStyle(ChunkyButtonStyle(kind: .red, height: 58, fontSize: 19))
+                Image(systemName: "play.fill")
+                Text("Погнали")
             }
+        }
+        .buttonStyle(ChunkyButtonStyle(kind: .gold, height: 76, fontSize: 34))
+        .accessibilityLabel("Погнали, начать заезд")
+    }
+
+    private var navRow: some View {
+        HStack(alignment: .top, spacing: 10) {
+            MenuNavTile(title: "Гараж", symbol: "bicycle", colors: .red, action: { game.openGarage() })
+            MenuNavTile(title: "Прокачка", symbol: "wrench.and.screwdriver.fill", colors: .violet, action: { game.openUpgrades() })
+            MenuNavTile(title: "Задания", symbol: "checklist", colors: .green, action: { game.openMissions() })
+            dailyTile
+        }
+        .padding(.top, 2)
+    }
+
+    private var dailyTile: some View {
+        let ready = game.canClaimDaily
+        let reward = game.dailyRewardPreview
+        return MenuNavTile(
+            title: "Награда дня",
+            symbol: "gift.fill",
+            colors: ready ? .gold : .steel,
+            badge: ready ? "!" : nil,
+            accessibility: ready ? "Забрать награду дня: \(reward) говнокоинов" : "Награда дня уже забрана, приходи завтра",
+            action: { game.claimDaily() }
+        )
+    }
+
+    private func toggleSettings() {
+        if reduceMotion {
+            showsSettings.toggle()
+        } else {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { showsSettings.toggle() }
         }
     }
 }
 
-/// «ПИЗДЕЦ КРУТОЙ БАЙКЕР 3Д» as a stacked sticker logo.
-/// The logo is drawn once into a single texture (`drawingGroup`), so its outlines, gradients and
-/// blurred glows are not re-rendered while it pulses; the pulse only scales the finished picture.
-private struct HubTitle: View {
-    let onSecret: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-
-    /// Room for the glows inside the texture, which clips at its edges.
-    private static let glowRoom: CGFloat = 20
-    private static let secretPressSeconds = 1.5
+/// Level and wallet on the left, the settings button on the right.
+private struct MenuHubTopBar: View {
+    let level: Int
+    let coins: Int
+    let settingsOn: Bool
+    let onSettings: () -> Void
 
     var body: some View {
-        logo
-            .padding(Self.glowRoom)
-            .drawingGroup()
-            .padding(-Self.glowRoom)
-            .scaleEffect(pulse ? 1.03 : 1)
-            .accessibilityElement()
-            .accessibilityLabel("Пиздец крутой байкер 3Д")
-            .accessibilityAddTraits(.isHeader)
-            .onLongPressGesture(minimumDuration: Self.secretPressSeconds, perform: onSecret)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
-            }
-    }
-
-    private var logo: some View {
-        VStack(spacing: -6) {
-            Text("ПИЗДЕЦ КРУТОЙ")
-                .font(GameFont.title(28))
-                .foregroundStyle(Palette.cream)
-                .outlined(width: 2.5)
-                .rotationEffect(.degrees(-3))
-            BigTitle(text: "БАЙКЕР", size: 64, colors: [Palette.goldTop, Palette.goldBottom])
-                .lineLimit(1)
-            Text("3Д")
-                .font(GameFont.title(70))
-                .foregroundStyle(LinearGradient(
-                    colors: [Palette.redTop, Palette.redBottom], startPoint: .top, endPoint: .bottom
-                ))
-                .outlined(width: 4)
-                .shadow(color: Palette.redTop.opacity(0.6), radius: 14)
-                .rotationEffect(.degrees(4))
+        HStack(spacing: 8) {
+            MenuLevelBadge(level: level)
+            CoinBadge(amount: coins)
+            Spacer(minLength: 4)
+            RoundIconButton(
+                symbol: settingsOn ? "xmark" : "gearshape.fill",
+                label: settingsOn ? "Закрыть настройки" : "Настройки",
+                action: onSettings
+            )
         }
-        .shadow(color: .black.opacity(0.7), radius: 8, x: 0, y: 4)
+    }
+}
+
+/// The settings drop-down: sound on/off and who made this.
+private struct MenuSettingsCard: View {
+    @ObservedObject var game: BikeGame
+    let close: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("НАСТРОЙКИ")
+                .font(GameFont.label(18))
+                .foregroundStyle(Palette.gold)
+                .outlined(width: 1.5)
+            Button(action: { game.toggleMute() }) {
+                HStack(spacing: 10) {
+                    Image(systemName: game.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .frame(width: 26)
+                    Text(game.isMuted ? "Звук выключен" : "Звук включён")
+                }
+            }
+            .buttonStyle(ChunkyButtonStyle(kind: game.isMuted ? .steel : .green, height: 50, fontSize: 16))
+            .accessibilityLabel(game.isMuted ? "Включить звук" : "Выключить звук")
+            VStack(alignment: .leading, spacing: 4) {
+                Text(MenuArt.gameTitle)
+                    .font(GameFont.styled(.subheadline, weight: .black))
+                    .foregroundStyle(Palette.cream)
+                Text(MenuArt.authors)
+                    .font(GameFont.styled(.footnote, weight: .semibold))
+                    .foregroundStyle(Palette.cream.opacity(0.8))
+            }
+            .accessibilityElement(children: .combine)
+        }
+        .padding(16)
+        .frame(maxWidth: 340)
+        .background(PanelBackground(cornerRadius: 22, rim: Palette.neonPink.opacity(0.6)))
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }

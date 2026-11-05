@@ -64,7 +64,7 @@ enum BikeTextures {
             cg.fill(CGRect(x: 0, y: 0, width: 512, height: 512))
             paintPoop(cg, side: 512)
             Painter.text(
-                "ПИЗДЕЦ\nКРУТОЙ БАЙКЕР", in: CGRect(x: 16, y: 400, width: 480, height: 100),
+                "ПИЗДЕЦ СУПЕР\nКРУТОЙ БАЙКЕР 3Д", in: CGRect(x: 16, y: 392, width: 480, height: 112),
                 color: UIColor(red: 1, green: 0.8, blue: 0.3, alpha: 1), glow: nil, weight: .black
             )
         }
@@ -97,12 +97,16 @@ enum BikeTextures {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = opaque
+        // On wide-colour iPhones the default is a 16-bit float, extended-range bitmap. SceneKit
+        // uploads plain 8-bit sRGB pictures most reliably (and in half the memory), so ask for that.
+        format.preferredRange = .standard
         return UIGraphicsImageRenderer(size: size, format: format)
     }
 }
 
 enum ImageMaker {
-    /// Wraps tightly packed RGBA bytes into an image; the alpha byte is ignored.
+    /// Wraps tightly packed RGBA bytes into an image. Callers write 255 in every alpha byte; the image
+    /// is tagged as plain RGBA (not "skip alpha") so every texture path takes it without conversion.
     static func opaqueImage(_ data: Data, width: Int, height: Int) -> CGImage? {
         guard let provider = CGDataProvider(data: data as CFData) else { return nil }
         return CGImage(
@@ -112,7 +116,7 @@ enum ImageMaker {
             bitsPerPixel: 32,
             bytesPerRow: width * 4,
             space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
             provider: provider,
             decode: nil,
             shouldInterpolate: true,

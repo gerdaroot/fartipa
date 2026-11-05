@@ -6,11 +6,18 @@ import SwiftUI
 struct RideHUD: View {
     let game: BikeGame
     let feed: RideFeed
+    /// A class, so marking a swipe as used does not rebuild this view.
+    @State private var swipe = HUDSwipeLatch()
+
+    /// Points the finger must travel up, and how much more up than sideways, to jump.
+    private static let swipeUpPoints: CGFloat = 46
+    private static let swipeUpRatio: CGFloat = 1.1
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
                 steeringLayer(width: proxy.size.width)
+                DangerGlow(feed: feed)
                 HitFlash(feed: feed)
                 HUDLayer(game: game, feed: feed)
             }
@@ -24,11 +31,29 @@ struct RideHUD: View {
                 DragGesture(minimumDistance: 0, coordinateSpace: .local)
                     .onChanged { value in
                         game.steerDrag(translation: Double(value.translation.width), width: Double(width))
+                        jumpIfSwipedUp(value.translation)
                     }
-                    .onEnded { _ in game.endSteer() }
+                    .onEnded { _ in
+                        swipe.fired = false
+                        game.endSteer()
+                    }
             )
             .accessibilityHidden(true)
     }
+
+    /// One jump per drag: the finger has to lift before the next swipe counts.
+    private func jumpIfSwipedUp(_ travel: CGSize) {
+        guard !swipe.fired else { return }
+        let up = -travel.height
+        guard up > Self.swipeUpPoints, up > abs(travel.width) * Self.swipeUpRatio else { return }
+        swipe.fired = true
+        game.jump()
+    }
+}
+
+/// Remembers whether the current drag has already jumped.
+final class HUDSwipeLatch {
+    var fired = false
 }
 
 /// The yellow flash when the rider gets hit.
@@ -36,23 +61,54 @@ private struct HitFlash: View {
     @ObservedObject var feed: RideFeed
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var flash = 0.0
+    @State private var slowFlash = 0.0
 
     private static let flashPeak = 0.6
     private static let flashPeakReduced = 0.3
     private static let flashSeconds = 0.45
+    /// The near-miss slow motion: a short white blink.
+    private static let slowPeak = 0.22
+    private static let slowSeconds = 0.3
 
     var body: some View {
-        Palette.piss
-            .opacity(flash)
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .onChange(of: feed.hitCount) { _ in hitFlash() }
+        ZStack {
+            Palette.piss.opacity(flash)
+            Color.white.opacity(slowFlash)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onChange(of: feed.hitCount) { _ in hitFlash() }
+        .onChange(of: feed.slowMoCount) { _ in slowMoFlash() }
     }
 
     private func hitFlash() {
         flash = reduceMotion ? Self.flashPeakReduced : Self.flashPeak
         withAnimation(.easeOut(duration: Self.flashSeconds)) { flash = 0 }
+    }
+
+    private func slowMoFlash() {
+        guard !reduceMotion else { return }
+        slowFlash = Self.slowPeak
+        withAnimation(.easeOut(duration: Self.slowSeconds)) { slowFlash = 0 }
+    }
+}
+
+/// Red glow at the screen edges while a stream is about to land on the bike's line.
+private struct DangerGlow: View {
+    @ObservedObject var feed: RideFeed
+
+    private static let width: CGFloat = 26
+
+    var body: some View {
+        let level = feed.hud.danger
+        Rectangle()
+            .strokeBorder(Palette.danger.opacity(0.75 * level), lineWidth: Self.width)
+            .blendMode(.screen)
+            .opacity(level > 0 ? 1 : 0)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -68,7 +124,15 @@ private struct HUDLayer: View {
             topBar
             ScoreHeader(score: hud.score, district: hud.districtName, combo: hud.combo, comboFraction: hud.comboFraction)
             PowerUpRow(hud: hud)
-            if let lane = hud.warningLane { StreamWarning(lane: lane) }
+            // One child: a view builder takes at most 10 on iOS 16.
+            Group {
+                if let lane = hud.warningLane { StreamWarning(lane: lane) }
+                if let banner = feed.banner {
+                    RoadEventBanner(banner: banner)
+                } else if let event = hud.roadEvent {
+                    RoadEventTimer(kind: event, seconds: hud.roadEventSeconds)
+                }
+            }
             Spacer(minLength: 0)
             PopupStack(popups: feed.popups)
             Spacer(minLength: 0)
@@ -90,7 +154,7 @@ private struct HUDLayer: View {
     }
 
     private var hint: some View {
-        Text("Веди пальцем влево-вправо. Жёлтое с неба — мимо, говнокоины — в карман, «ГАЗЫ» — тарань всех!")
+        Text("Веди пальцем влево-вправо, свайп вверх — пердёж-прыжок через кучи и люки. Жёлтое с неба — мимо, «ГАЗЫ» — тарань всех!")
             .font(GameFont.styled(.subheadline, weight: .heavy))
             .foregroundStyle(Palette.cream)
             .multilineTextAlignment(.center)
@@ -104,9 +168,14 @@ private struct HUDLayer: View {
         HStack(alignment: .bottom) {
             SpeedDial(kmh: hud.speedKmh, dial: hud.dial, isBoosting: hud.isBoosting)
             Spacer(minLength: 0)
-            BoostButton(
-                fraction: hud.boostFraction, canBoost: hud.canBoost, isBoosting: hud.isBoosting, action: { game.boost() }
-            )
+            VStack(spacing: 10) {
+                JumpButton(
+                    readiness: hud.jumpReadiness, canJump: hud.canJump, isAirborne: hud.isAirborne, action: { game.jump() }
+                )
+                BoostButton(
+                    fraction: hud.boostFraction, canBoost: hud.canBoost, isBoosting: hud.isBoosting, action: { game.boost() }
+                )
+            }
         }
     }
 }
@@ -166,8 +235,25 @@ private struct ScoreHeader: View {
 private struct ComboChip: View {
     let combo: Int
     let fraction: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse: CGFloat = 1
+
+    private static let pulsePeak: CGFloat = 1.35
 
     var body: some View {
+        chip
+            .scaleEffect(pulse)
+            .onChange(of: combo) { newValue in bump(up: newValue > 1) }
+    }
+
+    /// The chip jumps when the combo grows, so every near miss and flip is felt.
+    private func bump(up: Bool) {
+        guard up, !reduceMotion else { return }
+        pulse = Self.pulsePeak
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.45)) { pulse = 1 }
+    }
+
+    private var chip: some View {
         VStack(spacing: 2) {
             Text("КОМБО ×\(combo)")
                 .font(GameFont.label(13))

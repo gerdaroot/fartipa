@@ -1,0 +1,25 @@
+Photo textures used by «Пиздец супер крутой байкер 3Д»
+
+All files below come from ambientCG (https://ambientcg.com) and are released under
+Creative Commons CC0 1.0 Universal (public domain dedication):
+https://creativecommons.org/publicdomain/zero/1.0/
+No attribution is required; it is given here anyway. The files were downloaded as the
+1K-JPG packages, resized (1024 or 512 px, power of two) and re-encoded as JPEG.
+Normal maps are the OpenGL (NormalGL, +Y up) variants.
+
+tex-asphalt-color.jpg, tex-asphalt-normal.jpg, tex-asphalt-rough.jpg
+    Asphalt 031          https://ambientcg.com/view?id=Asphalt031          CC0 1.0
+tex-mud-color.jpg, tex-mud-normal.jpg
+    Ground 094 B         https://ambientcg.com/view?id=Ground094B          CC0 1.0
+tex-sidewalk-color.jpg, tex-sidewalk-normal.jpg
+    Paving Stones 150    https://ambientcg.com/view?id=PavingStones150     CC0 1.0
+tex-brick-color.jpg, tex-brick-normal.jpg
+    Bricks 105           https://ambientcg.com/view?id=Bricks105           CC0 1.0
+tex-concrete-color.jpg, tex-concrete-normal.jpg
+    Concrete 034         https://ambientcg.com/view?id=Concrete034         CC0 1.0
+tex-metal-color.jpg, tex-metal-normal.jpg, tex-metal-rough.jpg
+    Metal Plates 013     https://ambientcg.com/view?id=MetalPlates013      CC0 1.0
+tex-rust-color.jpg, tex-rust-normal.jpg
+    Metal 041 B          https://ambientcg.com/view?id=Metal041B           CC0 1.0
+tex-corrugated-color.jpg, tex-corrugated-normal.jpg
+    Corrugated Steel 005 https://ambientcg.com/view?id=CorrugatedSteel005  CC0 1.0

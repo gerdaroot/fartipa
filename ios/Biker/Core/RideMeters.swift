@@ -114,4 +114,16 @@ struct RideSummary: Equatable {
     var vehiclesSmashed = 0
     var bestCombo = 1
     var districtIndex = 0
+    /// Hops taken («пердёж-прыжки»).
+    var hops = 0
+    var pilesJumped = 0
+    /// Geysers and rolling lids jumped over while they were dangerous.
+    var hazardsJumped = 0
+    var rampJumps = 0
+    /// Vehicles flown over off a ramp.
+    var vehiclesVaulted = 0
+    /// Flips landed cleanly.
+    var flips = 0
+    /// The longest stretch in metres ridden without losing a life.
+    var bestCleanStretch = 0
 }

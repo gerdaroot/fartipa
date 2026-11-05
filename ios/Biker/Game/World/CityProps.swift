@@ -24,17 +24,19 @@ enum CityProps {
     static func building(seed: UInt64, tall: Bool, kit: CityKit) -> SCNNode {
         var random = SplitMix(seed: seed)
         let style = FacadeStyle.allCases[random.int(below: FacadeStyle.allCases.count)]
+        let variant = random.int(below: TexFacadePaint.variants)
         let units = 1 + random.int(below: 2)
         let floors = tall ? 2 + random.int(below: 3) : 1 + random.int(below: 2)
         let width = Double(units) * CityKit.facadeTileWidth
         let height = Double(floors) * CityKit.facadeTileHeight
         let holder = SCNNode()
-        holder.addChildNode(Shapes.box(width, height, width, kit.facade(style, width: width, height: height), at: Shapes.v(0, height / 2, 0)))
+        holder.addChildNode(Shapes.box(width, height, width, kit.facade(style, width: width, height: height, variant: variant), at: Shapes.v(0, height / 2, 0)))
+        if random.chance(0.3) { addWallPoster(to: holder, width: width, height: height, kit: kit) }
         var top = height
         if units == 2, random.chance(0.5) {
             let extra = CityKit.facadeTileHeight * Double(1 + random.int(below: 2))
             let tower = CityKit.facadeTileWidth
-            holder.addChildNode(Shapes.box(tower, extra, tower, kit.facade(style, width: tower, height: extra), at: Shapes.v(0, top + extra / 2, 0)))
+            holder.addChildNode(Shapes.box(tower, extra, tower, kit.facade(style, width: tower, height: extra, variant: variant), at: Shapes.v(0, top + extra / 2, 0)))
             addRoof(to: holder, width: width, y: top, neon: random.chance(0.5) ? kit.neonA : kit.neonB, kit: kit)
             top += extra
             addRoof(to: holder, width: tower, y: top, neon: kit.neonB, kit: kit)
@@ -53,6 +55,16 @@ enum CityProps {
         return kit.library.flatten(holder)
     }
 
+    /// The game's poster on the wall that faces the road, lit by two little lamps.
+    private static func addWallPoster(to holder: SCNNode, width: Double, height: Double, kit: CityKit) {
+        let side = min(7.0, width * 0.6)
+        let y = min(height - side / 2 - 1, 6 + side / 2)
+        guard y > side / 2 else { return }
+        let face = -width / 2 - 0.05
+        holder.addChildNode(Shapes.panel(side, side, kit.gamePoster, at: Shapes.v(face, y, 0), yaw: -.pi / 2))
+        holder.addChildNode(Shapes.box(0.3, 0.12, side + 0.4, kit.tubeLight, at: Shapes.v(face - 0.2, y + side / 2 + 0.2, 0)))
+    }
+
     private static func addRoof(to holder: SCNNode, width: Double, y: Double, neon: SCNMaterial, kit: CityKit) {
         holder.addChildNode(Shapes.box(width + 0.4, 0.5, width + 0.4, kit.roof, at: Shapes.v(0, y + 0.25, 0)))
         let edge = width / 2 + 0.22
@@ -67,11 +79,12 @@ enum CityProps {
     static func shop(seed: UInt64, kit: CityKit) -> SCNNode {
         var random = SplitMix(seed: seed)
         let style: FacadeStyle = random.chance(0.5) ? .brick : .flats
+        let variant = random.int(below: TexFacadePaint.variants)
         let depth = 9.0
         let length = 10 + random.unit() * 6
         let height = 6 + random.unit() * 3
         let holder = SCNNode()
-        holder.addChildNode(Shapes.box(depth, height, length, kit.facade(style, width: length, height: height), at: Shapes.v(0, height / 2, 0)))
+        holder.addChildNode(Shapes.box(depth, height, length, kit.facade(style, width: length, height: height, variant: variant), at: Shapes.v(0, height / 2, 0)))
         holder.addChildNode(Shapes.box(depth + 0.3, 0.4, length + 0.3, kit.roof, at: Shapes.v(0, height + 0.2, 0)))
         let front = -depth / 2 - 0.06
         holder.addChildNode(Shapes.panel(length * 0.8, 1.7, kit.randomSign(&random), at: Shapes.v(front, 3.6, 0), yaw: -.pi / 2))

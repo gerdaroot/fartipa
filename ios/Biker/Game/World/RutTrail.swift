@@ -1,17 +1,28 @@
 import SceneKit
 import UIKit
 
-/// The groove the tyre leaves in the poop behind the bike. It remembers where the bike was and
-/// lays short strips along that path, so it stays put on pause and curves with the steering.
-/// Every strip shares one flat quad (one draw call each; a box would be six).
+/// The groove the tyre leaves in the poop behind the bike. Short strips are laid along the bike's
+/// path, so it stays put on pause and curves with the steering. Every strip shares one flat quad.
+/// Strips sit in road coordinates under one holder that slides with the ride, so a frame costs a
+/// single position write; a strip is only touched when it is laid. Lower tiers use fewer strips
+/// (most of the groove is behind the chase camera anyway).
 @MainActor
 final class RutTrail {
     private static let segmentLength = 0.8
     private static let segmentCount = 30
     private static let width = 0.34
+    /// Past this many metres from the anchor every strip is shifted, so floats stay precise.
+    private static let rebaseMetres = 2000.0
+    /// Strips in use, set by the render tier.
+    static var activeSegments = segmentCount
 
+    private let strip = SCNNode()
     private var segments: [SCNNode] = []
-    private var history: [(distance: Double, x: Double)] = []
+    private var last: (distance: Double, x: Double)?
+    private var anchor = 0.0
+    private var nextSlot = 0
+    private var usedLimit = segmentCount
+    private var stripZ = Float.nan
 
     init(parent: SCNNode, library: MaterialLibrary) {
         let material = library.shared("rut", bend: false) {
@@ -23,42 +34,67 @@ final class RutTrail {
         }
         let quad = FlatQuad.make(width: Float(Self.width), length: Float(Self.segmentLength + 0.04))
         quad.firstMaterial = material
+        strip.castsShadow = false
+        parent.addChildNode(strip)
         for _ in 0..<Self.segmentCount {
             let node = SCNNode(geometry: quad)
             node.isHidden = true
             node.castsShadow = false
-            parent.addChildNode(node)
+            strip.addChildNode(node)
             segments.append(node)
         }
     }
 
     func reset() {
-        history.removeAll(keepingCapacity: true)
-        for node in segments { node.isHidden = true }
+        last = nil
+        nextSlot = 0
+        for node in segments { node.perfSetHidden(true) }
     }
 
-    /// `record` false keeps the old groove without adding to it (paused, airborne, idle garage).
+    /// `record` false keeps the old groove without adding to it (paused, airborne, crashed).
     func update(distance: Double, x: Double, record: Bool) {
-        if let last = history.last, last.distance > distance + 1 { reset() }
-        if record, history.last.map({ distance - $0.distance >= Self.segmentLength }) ?? true {
-            history.append((distance, x))
+        if let last, last.distance > distance + 1 { reset() }
+        if abs(distance - anchor) > Self.rebaseMetres { rebase(to: distance) }
+        applyLimit()
+        if record { lay(distance: distance, x: x) }
+        let z = Float(distance - anchor)
+        if z != stripZ {
+            stripZ = z
+            strip.position = SCNVector3(0, 0, z)
         }
-        let oldest = distance - Double(Self.segmentCount + 2) * Self.segmentLength
-        if let first = history.first, first.distance < oldest { history.removeFirst() }
-        let count = history.count
-        for (index, node) in segments.enumerated() {
-            let newer = count - 1 - index
-            guard newer >= 1 else {
-                node.isHidden = true
-                continue
-            }
-            let a = history[newer]
-            let b = history[newer - 1]
-            let midDistance = (a.distance + b.distance) / 2
-            node.isHidden = false
-            node.position = SCNVector3(Float((a.x + b.x) / 2), 0.02, Float(distance - midDistance))
-            node.eulerAngles.y = Float(-atan2(a.x - b.x, a.distance - b.distance))
+    }
+
+    private func lay(distance: Double, x: Double) {
+        guard let previous = last else {
+            last = (distance, x)
+            return
         }
+        guard distance - previous.distance >= Self.segmentLength else { return }
+        let node = segments[nextSlot]
+        nextSlot = (nextSlot + 1) % usedLimit
+        let middle = (distance + previous.distance) / 2
+        node.position = SCNVector3(Float((x + previous.x) / 2), 0.02, Float(anchor - middle))
+        node.eulerAngles = SCNVector3(0, Float(-atan2(x - previous.x, distance - previous.distance)), 0)
+        node.perfSetHidden(false)
+        last = (distance, x)
+    }
+
+    private func rebase(to distance: Double) {
+        let shift = Float(distance - anchor)
+        anchor = distance
+        for node in segments {
+            var position = node.position
+            position.z += shift
+            node.position = position
+        }
+    }
+
+    private func applyLimit() {
+        let limit = max(1, min(Self.segmentCount, Self.activeSegments))
+        guard limit != usedLimit else { return }
+        usedLimit = limit
+        nextSlot = 0
+        for index in limit..<Self.segmentCount { segments[index].perfSetHidden(true) }
     }
 }
 

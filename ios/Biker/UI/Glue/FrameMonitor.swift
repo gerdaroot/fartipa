@@ -9,13 +9,17 @@ struct FrameMonitor {
         var worstMs = 0
         /// Frames over `hitchSeconds` since launch.
         var hitches = 0
+        /// Frames over `freezeSeconds` since launch: the stalls a player calls a freeze.
+        var freezes = 0
     }
 
     static let hitchSeconds = 0.05
+    static let freezeSeconds = 0.1
     private static let windowSeconds = 1.0
     private static let msPerSecond = 1000.0
 
     private(set) var hitches = 0
+    private(set) var freezes = 0
     private var windowTime = 0.0
     private var windowFrames = 0
     private var windowWorst = 0.0
@@ -24,6 +28,7 @@ struct FrameMonitor {
     mutating func record(_ elapsed: Double) -> Report? {
         guard elapsed > 0, elapsed.isFinite else { return nil }
         if elapsed > Self.hitchSeconds { hitches += 1 }
+        if elapsed > Self.freezeSeconds { freezes += 1 }
         windowTime += elapsed
         windowFrames += 1
         windowWorst = max(windowWorst, elapsed)
@@ -31,7 +36,8 @@ struct FrameMonitor {
         let report = Report(
             fps: Int((Double(windowFrames) / windowTime).rounded()),
             worstMs: Int((windowWorst * Self.msPerSecond).rounded()),
-            hitches: hitches
+            hitches: hitches,
+            freezes: freezes
         )
         windowTime = 0
         windowFrames = 0

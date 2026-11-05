@@ -12,23 +12,36 @@ struct GarageScreen: View {
         selectedId.flatMap { Catalog.info(id: $0) }
     }
 
+    private var ownedCount: Int {
+        items.reduce(0) { count, info in count + (game.profile.owns(id: info.id) ? 1 : 0) }
+    }
+
     var body: some View {
-        VStack(spacing: 10) {
-            ScreenTopBar(title: "Гараж", coins: game.profile.coins, back: { game.goHub() })
-            Spacer(minLength: 0)
-            if let selected { SkinHeadline(info: selected) }
-            MessageBanner(notices: game.notices)
-            VStack(spacing: 12) {
-                GarageTabs(tab: $tab)
-                cards
-                actionButton
+        ZStack {
+            MenuVignette()
+            VStack(spacing: 10) {
+                ScreenTopBar(title: "Гараж", coins: game.profile.coins, back: { game.goHub() })
+                Spacer(minLength: 0)
+                if let selected { SkinHeadline(info: selected) }
+                MessageBanner(notices: game.notices)
+                VStack(spacing: 10) {
+                    GarageTabs(tab: $tab)
+                    MenuStatChip(
+                        symbol: "square.stack.3d.up.fill",
+                        title: "СОБРАНО",
+                        value: "\(ownedCount) / \(items.count)",
+                        tint: Palette.neonCyan
+                    )
+                    cards
+                    actionButton
+                }
+                .padding(12)
+                .background(PanelBackground(cornerRadius: 26, rim: Palette.neonPink.opacity(0.45)))
             }
-            .padding(12)
-            .background(PanelBackground(cornerRadius: 26))
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
         .onAppear { select(equippedId(of: tab)) }
         .onChange(of: tab) { kind in select(equippedId(of: kind)) }
     }
@@ -47,9 +60,15 @@ struct GarageScreen: View {
                         .id(info.id)
                     }
                 }
-                .padding(.horizontal, 2)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
             }
+            .id(tab)
+            .transition(.asymmetric(
+                insertion: .opacity.combined(with: .offset(x: 40)),
+                removal: .opacity
+            ))
             .onChange(of: selectedId) { id in
                 guard let id else { return }
                 withAnimation(.easeOut(duration: 0.25)) { reader.scrollTo(id, anchor: .center) }
@@ -143,6 +162,8 @@ struct ScreenTopBar: View {
 
 private struct GarageTabs: View {
     @Binding var tab: SkinKind
+    @Namespace private var pill
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 6) {
@@ -151,13 +172,19 @@ private struct GarageTabs: View {
             button("Выхлоп", "wind", .trail)
         }
         .padding(4)
-        .background(Capsule().fill(Color.black.opacity(0.45)))
+        .background(Capsule().fill(Color.black.opacity(0.5)))
+        .overlay(Capsule().strokeBorder(Palette.hairline, lineWidth: 1))
     }
 
     private func button(_ title: String, _ symbol: String, _ kind: SkinKind) -> some View {
         let isOn = tab == kind
         return Button {
-            tab = kind
+            guard tab != kind else { return }
+            if reduceMotion {
+                tab = kind
+            } else {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { tab = kind }
+            }
         } label: {
             Label(title, systemImage: symbol)
                 .font(GameFont.styled(.subheadline, weight: .heavy))
@@ -165,10 +192,14 @@ private struct GarageTabs: View {
                 .minimumScaleFactor(0.7)
                 .foregroundStyle(isOn ? Palette.ink : Palette.cream)
                 .frame(maxWidth: .infinity, minHeight: 40)
-                .background(Capsule().fill(isOn
-                    ? AnyShapeStyle(LinearGradient(colors: [Palette.goldTop, Palette.goldBottom], startPoint: .top, endPoint: .bottom))
-                    : AnyShapeStyle(Color.clear)))
-                .overlay(Capsule().strokeBorder(isOn ? Palette.outline : Color.clear, lineWidth: 2))
+                .background {
+                    if isOn {
+                        Capsule()
+                            .fill(LinearGradient(colors: [Palette.goldTop, Palette.goldBottom], startPoint: .top, endPoint: .bottom))
+                            .overlay(Capsule().strokeBorder(Palette.outline, lineWidth: 2))
+                            .matchedGeometryEffect(id: "garage.tab", in: pill)
+                    }
+                }
         }
         .buttonStyle(PressScaleStyle())
         .accessibilityAddTraits(isOn ? .isSelected : [])

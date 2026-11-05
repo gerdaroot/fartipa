@@ -93,6 +93,11 @@ struct ProfileStats: Codable, Equatable {
     var bestDailyStreak = 0
     var upgradesBought = 0
     var skinsBought = 0
+    var pilesJumped = 0
+    var hazardsJumped = 0
+    var rampJumps = 0
+    var vehiclesVaulted = 0
+    var flips = 0
 
     private static let cap = 1_000_000_000_000
 
@@ -100,6 +105,7 @@ struct ProfileStats: Codable, Equatable {
         case rides, totalDistance, totalCoins, goldenCoins, nearMisses, hits, boosts, pickups, skids
         case shieldBlocks, vehiclesSmashed, bestDistance, bestCombo, bestDistrict, bestCleanDistance
         case bestDailyStreak, upgradesBought, skinsBought
+        case pilesJumped, hazardsJumped, rampJumps, vehiclesVaulted, flips
     }
 
     init() {}
@@ -128,6 +134,11 @@ struct ProfileStats: Codable, Equatable {
         bestDailyStreak = read(.bestDailyStreak, 0)
         upgradesBought = read(.upgradesBought, 0)
         skinsBought = read(.skinsBought, 0)
+        pilesJumped = read(.pilesJumped, 0)
+        hazardsJumped = read(.hazardsJumped, 0)
+        rampJumps = read(.rampJumps, 0)
+        vehiclesVaulted = read(.vehiclesVaulted, 0)
+        flips = read(.flips, 0)
     }
 
     private static func clamp(_ value: Int) -> Int {
@@ -151,6 +162,11 @@ struct ProfileStats: Codable, Equatable {
         next.bestDistance = max(bestDistance, Self.clamp(ride.distance))
         next.bestCombo = max(bestCombo, Self.clamp(ride.bestCombo))
         next.bestDistrict = max(bestDistrict, Self.clamp(ride.districtIndex))
+        next.pilesJumped = Self.clamp(pilesJumped + Self.clamp(ride.pilesJumped))
+        next.hazardsJumped = Self.clamp(hazardsJumped + Self.clamp(ride.hazardsJumped))
+        next.rampJumps = Self.clamp(rampJumps + Self.clamp(ride.rampJumps))
+        next.vehiclesVaulted = Self.clamp(vehiclesVaulted + Self.clamp(ride.vehiclesVaulted))
+        next.flips = Self.clamp(flips + Self.clamp(ride.flips))
         if ride.hits == 0 {
             next.bestCleanDistance = max(bestCleanDistance, Self.clamp(ride.distance))
         }

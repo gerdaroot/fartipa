@@ -7,6 +7,12 @@ extension BikeGame {
     private static let demoRideSeed: UInt64 = 7
     private static let demoOverSeed: UInt64 = 3
     private static let demoRideLeadSeconds = 3.0
+    /// The demo ride looks for the intro ramp this long at most.
+    private static let demoRampSearchSeconds = 40.0
+    /// Seconds before a ramp when the demo rider lines up with it.
+    private static let demoRampLineUpSeconds = 2.5
+    /// The hold comes this far into the flip, with the bike half upside down.
+    private static let demoFlipHoldSeconds = 0.24
     private static let demoOverCleanSeconds = 45.0
     private static let demoOverCrashSeconds = 600.0
     private static let demoCoins = 48_750
@@ -28,6 +34,7 @@ extension BikeGame {
             startRide(seed: Self.demoRideSeed)
             fastForward(seconds: Self.demoRideLeadSeconds, autopilot: true)
             demoAutopilot = true
+            demoHold = fastForwardToRampFlip()
         case "garage":
             openGarage()
         case "upgrades":
@@ -40,6 +47,47 @@ extension BikeGame {
         default:
             goHub()
         }
+    }
+
+    /// Plays the ride ahead without drawing it, for demo screenshots.
+    func fastForward(seconds: Double, autopilot: Bool) {
+        guard phase == .riding, var current = run else { return }
+        let step = Self.defaultStep
+        var left = seconds
+        while left > 0, !current.isOver {
+            if autopilot, current.autopilotWantsJump() { current.jump() }
+            _ = current.update(dt: step, targetX: autopilot ? current.autopilotTarget() : 0)
+            left -= step
+        }
+        adoptDemoRun(current)
+    }
+
+    /// Rides on to the first ramp, takes it, starts a flip and stops mid-flip. False when no
+    /// ramp came in time (the demo then just rides on).
+    private func fastForwardToRampFlip() -> Bool {
+        guard phase == .riding, var current = run else { return false }
+        let step = Self.defaultStep
+        var left = Self.demoRampSearchSeconds
+        while left > 0, !current.isOver {
+            if current.air.kind == .ramp {
+                if current.air.canFlip { current.jump() }
+                if (current.air.flipElapsed ?? 0) >= Self.demoFlipHoldSeconds { break }
+            }
+            _ = current.update(dt: step, targetX: demoTarget(current))
+            left -= step
+        }
+        adoptDemoRun(current)
+        return current.air.kind == .ramp && !current.isOver
+    }
+
+    /// Lines up with the next ramp shortly before it; otherwise the autopilot drives.
+    private func demoTarget(_ current: BikeRun) -> Double {
+        let reach = current.speed * Self.demoRampLineUpSeconds
+        for ramp in current.ramps {
+            let ahead = ramp.z - current.distance
+            if ahead > 0, ahead < reach { return ramp.x }
+        }
+        return current.autopilotTarget()
     }
 
     /// A player a few evenings in: coins, half the upgrades, some skins and achievements.

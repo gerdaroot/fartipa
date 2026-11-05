@@ -13,6 +13,9 @@ final class CameraRig {
     private static let showcaseFov = 42.0
     private static let orbitRadius = 4.3
     private static let orbitSpeed = 0.32
+    private static let speedLineRate: CGFloat = 90
+    /// Shake and FOV punches below this are snapped to rest, so a still camera stops being rewritten.
+    private static let settled = 0.001
 
     let node = SCNNode()
     let cameraNode = SCNNode()
@@ -24,6 +27,7 @@ final class CameraRig {
     private var shakeAmount = 0.0
     private var kick = 0.0
     private var orbit = 0.0
+    private var isStill = false
     /// Forces the speed lines on while the world warms up its shaders behind the loading screen.
     var warming = false
     var budget: CGFloat = 1
@@ -79,14 +83,17 @@ final class CameraRig {
     func update(bikeX: Double, rev: Double, boosting: Bool, lookAhead: Double, dt: Double, clock: Double) {
         let effective: BikeCamera = mode == .chase && boosting ? .boost : mode
         let target = placement(effective, bikeX: bikeX, lookAhead: lookAhead, dt: dt)
-        let follow = dt > 0 ? 1 - exp(-dt * (effective == .showcase ? 3 : 6)) : 0
-        node.position = mix(node.position, target.eye, follow)
-        focus = mix(focus, target.focus, follow)
-        node.look(at: focus, up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 0, -1))
+        // A frozen frame (pause, game over) leaves the camera where it is instead of rewriting it.
+        if dt > 0 {
+            let follow = 1 - exp(-dt * (effective == .showcase ? 3 : 6))
+            node.position = mix(node.position, target.eye, follow)
+            focus = mix(focus, target.focus, follow)
+            node.look(at: focus, up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 0, -1))
+        }
         updateFov(effective, rev: rev, dt: dt)
         updateShake(dt: dt, clock: clock, rev: rev)
         let rushing = (effective == .boost && dt > 0) || warming
-        speedLines.birthRate = rushing ? 90 * budget : 0
+        speedLines.perfSetBirthRate(rushing ? Self.speedLineRate * budget : 0)
     }
 
     private func placement(_ mode: BikeCamera, bikeX: Double, lookAhead: Double, dt: Double) -> (eye: SCNVector3, focus: SCNVector3) {
@@ -113,19 +120,32 @@ final class CameraRig {
         let follow = dt > 0 ? 1 - exp(-dt * 3) : 0
         fov += (wanted - fov) * follow
         kick *= dt > 0 ? exp(-dt * 5) : 1
-        camera.fieldOfView = CGFloat(fov + kick)
+        if abs(kick) < Self.settled { kick = 0 }
+        let wantedFov = CGFloat(fov + kick)
+        if abs(camera.fieldOfView - wantedFov) > CGFloat(Self.settled) { camera.fieldOfView = wantedFov }
     }
 
+    /// Writes the shake only while there is some; a still camera is left alone.
     private func updateShake(dt: Double, clock: Double, rev: Double) {
         let rumble = mode == .showcase ? 0 : 0.012 * min(1.5, max(0, rev))
+        if shakeAmount < Self.settled { shakeAmount = 0 }
         let amount = shakeAmount + rumble
+        if amount <= 0 || dt <= 0 {
+            if amount <= 0 && !isStill {
+                cameraNode.position = SCNVector3(0, 0, 0)
+                cameraNode.eulerAngles = SCNVector3(0, 0, 0)
+                isStill = true
+            }
+            return
+        }
+        isStill = false
         cameraNode.position = SCNVector3(
             Float(amount * sin(clock * 47) * 0.6),
             Float(amount * sin(clock * 59 + 1.3) * 0.5),
             0
         )
-        cameraNode.eulerAngles.z = Float(amount * 0.08 * sin(clock * 37))
-        shakeAmount *= dt > 0 ? exp(-dt * 6) : 1
+        cameraNode.eulerAngles = SCNVector3(0, 0, Float(amount * 0.08 * sin(clock * 37)))
+        shakeAmount *= exp(-dt * 6)
     }
 
     private func mix(_ a: SCNVector3, _ b: SCNVector3, _ t: Double) -> SCNVector3 {

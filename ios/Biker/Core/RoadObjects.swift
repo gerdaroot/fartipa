@@ -166,17 +166,22 @@ struct PoopPile: Equatable {
 
 struct RoadCoin: Equatable {
     static let goldenValue = 10
+    /// A coin hanging in the air is caught when the bike is at most this far below it.
+    static let liftReach = 1.3
 
     let id: Int
     let x: Double
     let z: Double
     let isGolden: Bool
+    /// Metres above the road. Coins over a ramp jump hang in the air; most lie on the road (0).
+    let lift: Double
 
-    init(id: Int = 0, x: Double, z: Double, isGolden: Bool = false) {
+    init(id: Int = 0, x: Double, z: Double, isGolden: Bool = false, lift: Double = 0) {
         self.id = id
         self.x = x
         self.z = z
         self.isGolden = isGolden
+        self.lift = lift
     }
 
     var value: Int { isGolden ? Self.goldenValue : 1 }

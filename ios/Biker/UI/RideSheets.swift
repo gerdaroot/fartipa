@@ -62,36 +62,84 @@ struct GameOverSheet: View {
                 .outlined(width: 3)
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
-            Text("ОЧКОВ")
+            Text("ОЧКОВ · РЕКОРД \(game.profile.bestScore)")
                 .font(GameFont.label(13))
                 .foregroundStyle(Palette.cream.opacity(0.7))
         }
         .accessibilityElement(children: .combine)
         coinsEarned(outcome)
-        HStack(spacing: 8) {
-            StatBlock(value: "\(outcome.summary.distance) м", title: "проехал")
-            StatBlock(value: "\(outcome.summary.nearMisses)", title: "на волоске")
-            StatBlock(value: "×\(outcome.summary.bestCombo)", title: "комбо")
+        levelUp(outcome.reward)
+        MissionLevelBar(progress: game.profile.levelProgress, gained: outcome.reward.xpGained)
+        // One child for the three rows: a view builder takes at most 10 on iOS 16.
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                StatBlock(value: "\(outcome.summary.distance) м", title: "проехал")
+                StatBlock(value: "\(outcome.summary.nearMisses)", title: "на волоске")
+                StatBlock(value: "×\(outcome.summary.bestCombo)", title: "комбо")
+            }
+            HStack(spacing: 8) {
+                StatBlock(value: "\(outcome.summary.vehiclesSmashed)", title: "тараны")
+                StatBlock(value: "\(outcome.summary.hits)", title: "обоссан")
+                StatBlock(value: districtName(outcome.summary.districtIndex), title: "район", tint: Palette.redTop)
+            }
+            HStack(spacing: 8) {
+                StatBlock(value: "\(outcome.summary.pilesJumped + outcome.summary.hazardsJumped)", title: "перепрыгнул")
+                StatBlock(value: "\(outcome.summary.rampJumps)", title: "трамплины")
+                StatBlock(value: "\(outcome.summary.flips)", title: "сальто")
+            }
         }
-        HStack(spacing: 8) {
-            StatBlock(value: "\(outcome.summary.vehiclesSmashed)", title: "тараны")
-            StatBlock(value: "\(outcome.summary.hits)", title: "обоссан")
-            StatBlock(value: districtName(outcome.summary.districtIndex), title: "район", tint: Palette.redTop)
-        }
+        missions(outcome.reward)
         buttons
+        MenuAuthorsLine()
+            .padding(.top, 2)
+    }
+
+    /// «НОВЫЙ УРОВЕНЬ!» when the ride raised the level.
+    @ViewBuilder
+    private func levelUp(_ reward: RideReward) -> some View {
+        if reward.levelAfter > reward.levelBefore {
+            Label("НОВЫЙ УРОВЕНЬ \(reward.levelAfter)! +\(reward.levelCoins)", systemImage: "star.fill")
+                .font(GameFont.title(18))
+                .foregroundStyle(Palette.ink)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(LinearGradient(
+                    colors: [Palette.greenTop, Palette.greenBottom], startPoint: .top, endPoint: .bottom
+                )))
+                .overlay(Capsule().strokeBorder(Palette.outline, lineWidth: 2))
+        }
+    }
+
+    /// Missions finished in this ride (paid), then the board as it stands now.
+    private func missions(_ reward: RideReward) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ЗАДАНИЯ")
+                .font(GameFont.label(14))
+                .foregroundStyle(Palette.gold)
+                .outlined(width: 1)
+            ForEach(reward.completedMissions) { mission in
+                MissionRow(mission: mission, compact: true)
+            }
+            ForEach(game.profile.missions) { mission in
+                MissionRow(mission: mission, compact: true)
+            }
+        }
     }
 
     private func coinsEarned(_ outcome: RideOutcome) -> some View {
         HStack(spacing: 10) {
             CoinIcon(size: 34)
-            Text("+\(outcome.reward.coinsEarned)")
+            Text("+\(outcome.totalCoins)")
                 .font(GameFont.title(34).monospacedDigit())
                 .foregroundStyle(Palette.gold)
                 .outlined(width: 2)
-            if outcome.reward.achievementCoins > 0 {
-                Text("+\(outcome.reward.achievementCoins) за ачивки")
+            let extras = Self.extras(outcome.reward)
+            if !extras.isEmpty {
+                Text(extras)
                     .font(GameFont.styled(.caption, weight: .heavy))
                     .foregroundStyle(Palette.greenTop)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.7)
             }
         }
         .padding(.horizontal, 18)
@@ -102,10 +150,23 @@ struct GameOverSheet: View {
         .accessibilityLabel(coinsLabel(outcome))
     }
 
+    /// «заезд +120», «задания +50», «уровень +40» on lines: only when something besides the ride paid.
+    private static func extras(_ reward: RideReward) -> String {
+        let parts: [(Int, String)] = [
+            (reward.missionCoins, "задания"), (reward.levelCoins, "уровень"), (reward.achievementCoins, "ачивки"),
+        ]
+        let paid = parts.filter { $0.0 > 0 }.map { "\($0.1) +\($0.0)" }
+        guard !paid.isEmpty else { return "" }
+        return (["заезд +\(reward.coinsEarned)"] + paid).joined(separator: Self.lineBreak)
+    }
+
+    private static let lineBreak = "\n"
+
     private func coinsLabel(_ outcome: RideOutcome) -> String {
-        let base = "Заработано \(outcome.reward.coinsEarned) говнокоинов"
-        guard outcome.reward.achievementCoins > 0 else { return base }
-        return base + " и \(outcome.reward.achievementCoins) за достижения"
+        let base = "Заработано \(outcome.totalCoins) говнокоинов"
+        let extras = Self.extras(outcome.reward)
+        guard !extras.isEmpty else { return base }
+        return base + ": " + extras.replacingOccurrences(of: Self.lineBreak, with: ", ")
     }
 
     private var buttons: some View {

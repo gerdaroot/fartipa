@@ -24,6 +24,13 @@ struct BikeFrame {
 final class BikeEffects {
     private static let maxLean = 0.42
     private static let crashRoll = 1.3
+    /// The bike turns around this height when it flips, roughly its middle.
+    private static let flipPivot = 0.8
+    /// Nose up while climbing in a jump, nose down while falling, in radians at most.
+    private static let airPitch = 0.28
+    /// A hop's take-off puffs the exhaust this many times harder for `hopPuffSeconds`.
+    private static let hopPuffFactor: CGFloat = 7
+    private static let hopPuffSeconds = 0.22
 
     let holder = SCNNode()
     private let library: MaterialLibrary
@@ -43,6 +50,9 @@ final class BikeEffects {
     private var lean = 0.0
     private var yaw = 0.0
     private var crash = 0.0
+    private var lastHop = 0
+    private var hopPuff = 0.0
+    private var lastAirHeight = 0.0
     /// Shows the shield, magnet ring, glitter and trail while the world warms up behind the loading screen.
     var warming = false
     var budget: CGFloat = 1
@@ -127,7 +137,7 @@ final class BikeEffects {
     func update(_ frame: BikeFrame, dt: Double) {
         steer(frame, dt: dt)
         spinWheels(frame)
-        emit(frame)
+        emit(frame, dt: dt)
         showPowerUps(frame)
         ruts.update(distance: frame.distance, x: frame.x, record: frame.live && !frame.crashed)
     }
@@ -141,14 +151,30 @@ final class BikeEffects {
         yaw += (-rate * 0.02 + wobble - yaw) * follow
         let crashTarget = frame.crashed ? 1.0 : 0.0
         crash += (crashTarget - crash) * (frame.crashed ? min(1, dt * 3) : 1)
-        let bounce = frame.live ? 0.012 * sin(frame.clock * 31) * min(1, frame.rev + 0.3) : 0
-        holder.position = SCNVector3(Float(frame.x), Float(bounce - crash * 0.25), 0)
-        holder.eulerAngles = SCNVector3(0, Float(yaw + crash * 0.5), Float(lean + crash * Self.crashRoll))
-        holder.opacity = frame.blinking && sin(frame.clock * 34) > 0 ? 0.35 : 1
+        let airborne = PlayAirPose.isAirborne
+        let bounce = frame.live && !airborne ? 0.012 * sin(frame.clock * 31) * min(1, frame.rev + 0.3) : 0
+        let air = airPose(dt: dt)
+        holder.position = SCNVector3(Float(frame.x), Float(bounce - crash * 0.25 + air.lift), Float(air.shift))
+        holder.eulerAngles = SCNVector3(Float(air.pitch), Float(yaw + crash * 0.5), Float(lean + crash * Self.crashRoll))
+        holder.perfSetOpacity(frame.blinking && sin(frame.clock * 34) > 0 ? 0.35 : 1)
         if let rider = rig?.rider {
             let tuck: Float = frame.boosting ? -0.22 : 0
             rider.eulerAngles = SCNVector3(riderBase.x + tuck, riderBase.y, riderBase.z + Float(lean * 0.35))
         }
+    }
+
+    /// Height, pitch and the shift that keeps a flip turning around the bike's middle.
+    private func airPose(dt: Double) -> (lift: Double, pitch: Double, shift: Double) {
+        let height = PlayAirPose.height
+        let climb = dt > 0 ? (height - lastAirHeight) / dt : 0
+        lastAirHeight = height
+        guard PlayAirPose.isAirborne else { return (0, 0, 0) }
+        let tilt = max(-Self.airPitch, min(Self.airPitch, climb * 0.05))
+        let spin = PlayAirPose.turns * 2 * Double.pi
+        let angle = tilt + spin
+        let rise = Self.flipPivot - Self.flipPivot * cos(spin)
+        let shift = -Self.flipPivot * sin(spin)
+        return (height + rise, angle, shift)
     }
 
     private func spinWheels(_ frame: BikeFrame) {
@@ -161,12 +187,18 @@ final class BikeEffects {
     }
 
     /// Farts come in puffs, faster with speed; the trail only flows under gas.
-    private func emit(_ frame: BikeFrame) {
+    private func emit(_ frame: BikeFrame, dt: Double) {
         let running = frame.live && !frame.crashed
         let rev = min(1.5, max(0, frame.rev))
         let puff = pow(max(0, sin(frame.clock * (5 + 7 * rev))), 2)
         let rate = (5 + 20 * rev) * (0.25 + 1.5 * puff)
-        fart.birthRate = running ? CGFloat(rate) * budget : 0
+        if PlayAirPose.hopCount != lastHop {
+            lastHop = PlayAirPose.hopCount
+            hopPuff = Self.hopPuffSeconds
+        }
+        let gust: CGFloat = hopPuff > 0 ? Self.hopPuffFactor : 1
+        hopPuff = max(0, hopPuff - max(0, dt))
+        fart.birthRate = running ? CGFloat(rate) * budget * gust : 0
         fart.particleVelocity = CGFloat(1.5 + frame.speed * 0.05)
         let sweep = Float(frame.speed * 0.45)
         fart.acceleration = SCNVector3(0, 0.6, sweep)

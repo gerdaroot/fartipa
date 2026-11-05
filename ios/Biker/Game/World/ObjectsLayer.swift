@@ -47,6 +47,8 @@ final class ObjectsLayer {
     private static let goldenCount = 4
     private static let vehiclesPerKind = 6
     private static let pickupsPerKind = 2
+    private static let rampCount = 3
+    private static let manholesPerKind = 6
 
     private let root: SCNNode
     private let library: MaterialLibrary
@@ -57,6 +59,8 @@ final class ObjectsLayer {
     private let goldenCoins: KeyedPool<SimpleItem>
     private var vehicles: [VehicleKind: KeyedPool<VehicleItem>] = [:]
     private var pickups: [PickupKind: KeyedPool<SimpleItem>] = [:]
+    private let ramps: KeyedPool<SimpleItem>
+    private var manholes: [ManholeKind: KeyedPool<PlayManholeItem>] = [:]
     var budget: CGFloat = 1
 
     init(parent: SCNNode, library: MaterialLibrary) {
@@ -80,6 +84,10 @@ final class ObjectsLayer {
         for kind in PickupKind.allCases {
             pickups[kind] = KeyedPool(parent: holder, prewarm: Self.pickupsPerKind) { ObjectModels.pickup(kind, library: library) }
         }
+        ramps = KeyedPool(parent: holder, prewarm: Self.rampCount) { PlayModels.ramp(library: library) }
+        for kind in ManholeKind.allCases {
+            manholes[kind] = KeyedPool(parent: holder, prewarm: Self.manholesPerKind) { PlayManholeItem(kind: kind, library: library) }
+        }
         for index in 0..<VehicleModels.paints.count { _ = VehicleModels.paint(index, library: library) }
     }
 
@@ -101,6 +109,8 @@ final class ObjectsLayer {
         goldenCoins.forEachSpare { show($0.root) }
         for pool in vehicles.values { pool.forEachSpare { show($0.root) } }
         for pool in pickups.values { pool.forEachSpare { show($0.root) } }
+        ramps.forEachSpare { show($0.root) }
+        for pool in manholes.values { pool.forEachSpare { show($0.root) } }
     }
 
     /// Drops every node, e.g. when a new ride starts.
@@ -111,12 +121,16 @@ final class ObjectsLayer {
         goldenCoins.releaseAll()
         for pool in vehicles.values { pool.releaseAll() }
         for pool in pickups.values { pool.releaseAll() }
+        ramps.releaseAll()
+        for pool in manholes.values { pool.releaseAll() }
+        PlayAirPose.reset()
     }
 
     func update(_ run: BikeRun, bend: BendAmount, clock: Double, dt: Double, live: Bool) {
         let distance = run.distance
-        streamKit.flow(clock: clock)
-        updateStreams(run, bend: bend, clock: clock, dt: dt)
+        PlayAirPose.write(height: run.airHeight, turns: run.airTurns, airborne: run.isAirborne,
+                          hopped: live && run.moments.contains(.jumped))
+        if updateStreams(run, bend: bend, clock: clock, dt: dt) { streamKit.flow(clock: clock) }
         updateVehicles(run.vehicles, distance: distance, bend: bend, clock: clock, live: live)
         piles.begin()
         for pile in run.piles {
@@ -126,6 +140,8 @@ final class ObjectsLayer {
         piles.end()
         updateCoins(run.roadCoins, distance: distance, bend: bend, clock: clock)
         updatePickups(run.roadPickups, distance: distance, bend: bend, clock: clock)
+        updateRamps(run.ramps, distance: distance, bend: bend)
+        updateManholes(run, bend: bend, clock: clock, live: live)
     }
 
     private func visible(_ z: Double, _ distance: Double) -> Double? {
@@ -134,24 +150,33 @@ final class ObjectsLayer {
     }
 
     /// Puts a node on the bent road `ahead` metres in front of the bike and turns it along the curve.
-    private func place(_ node: SCNNode, x: Double, ahead: Double, lift: Double, bend: BendAmount) {
+    /// Writes only what changed: SceneKit dirties a node on every write. Streams hang straight
+    /// down, so they are not turned along the curve (`turns` false).
+    private func place(_ node: SCNNode, x: Double, ahead: Double, lift: Double, bend: BendAmount, turns: Bool = true) {
         let offset = bend.offset(ahead: ahead)
+        node.perfSetPosition(SCNVector3(Float(x + offset.x), Float(offset.y + lift), Float(-ahead)))
+        guard turns else {
+            node.perfSetEuler(SCNVector3(0, 0, 0))
+            return
+        }
         let slope = bend.slope(ahead: ahead)
-        node.position = SCNVector3(Float(x + offset.x), Float(offset.y + lift), Float(-ahead))
-        node.eulerAngles = SCNVector3(Float(slope.pitch), Float(slope.yaw), 0)
+        node.perfSetEuler(SCNVector3(Float(slope.pitch), Float(slope.yaw), 0))
     }
 
-    private func updateStreams(_ run: BikeRun, bend: BendAmount, clock: Double, dt: Double) {
+    /// Returns whether any stream is drawn, so the shared flow animation can rest when none is.
+    private func updateStreams(_ run: BikeRun, bend: BendAmount, clock: Double, dt: Double) -> Bool {
         streams.begin()
+        var any = false
         for stream in run.streams where stream.isVisible {
             guard let ahead = visible(stream.z, run.distance) else { continue }
             let item = streams.item(for: stream.id).item
             item.budget = budget
-            place(item.root, x: stream.x(atTime: run.time), ahead: ahead, lift: 0, bend: bend)
-            item.root.eulerAngles = SCNVector3(0, 0, 0)
+            place(item.root, x: stream.x(atTime: run.time), ahead: ahead, lift: 0, bend: bend, turns: false)
             item.update(stream, clock: clock, dt: dt)
+            any = true
         }
         streams.end()
+        return any
     }
 
     private func updateVehicles(_ list: [Vehicle], distance: Double, bend: BendAmount, clock: Double, live: Bool) {
@@ -178,7 +203,8 @@ final class ObjectsLayer {
             let item = pool.item(for: coin.id).item
             place(item.root, x: coin.x, ahead: ahead, lift: 0, bend: bend)
             item.spinner?.eulerAngles.y = spin + Float(coin.id % 7) * 0.2
-            item.spinner?.position.y = Float(ObjectModels.coinHeight + (coin.isGolden ? 0.3 : 0) + 0.08 * sin(clock * 3 + Double(coin.id)))
+            let bob = 0.08 * sin(clock * 3 + Double(coin.id))
+            item.spinner?.position.y = Float(ObjectModels.coinHeight + (coin.isGolden ? 0.3 : 0) + coin.lift + bob)
         }
         coins.end()
         goldenCoins.end()
@@ -193,5 +219,25 @@ final class ObjectsLayer {
             item.spinner?.position.y = Float(ObjectModels.pickupHeight + 0.18 * sin(clock * 2.6 + Double(pickup.id)))
         }
         for pool in pickups.values { pool.end() }
+    }
+
+    private func updateRamps(_ list: [RoadRamp], distance: Double, bend: BendAmount) {
+        ramps.begin()
+        for ramp in list {
+            guard let ahead = visible(ramp.z, distance) else { continue }
+            place(ramps.item(for: ramp.id).item.root, x: ramp.x, ahead: ahead, lift: 0, bend: bend)
+        }
+        ramps.end()
+    }
+
+    private func updateManholes(_ run: BikeRun, bend: BendAmount, clock: Double, live: Bool) {
+        for pool in manholes.values { pool.begin() }
+        for hole in run.manholes {
+            guard let ahead = visible(hole.z, run.distance), let pool = manholes[hole.kind] else { continue }
+            let item = pool.item(for: hole.id).item
+            place(item.root, x: hole.x(atTime: run.time), ahead: ahead, lift: 0, bend: bend)
+            item.update(hole, time: run.time, clock: clock, live: live, budget: budget)
+        }
+        for pool in manholes.values { pool.end() }
     }
 }

@@ -48,11 +48,21 @@ final class KeyedPool<Item: PooledItem> {
         return (item, true)
     }
 
-    /// Hides and frees every item whose object was not asked for since `begin`.
+    /// Hides and frees every item whose object was not asked for since `begin`, then hides the
+    /// items placed beyond `PoolCulling.aheadLimit` (they would only be drawn into thick fog).
+    /// Visibility is written only when it changes: SceneKit dirties a node on every write.
     func end() {
         stale.removeAll(keepingCapacity: true)
         for id in active.keys where !seen.contains(id) { stale.append(id) }
         for id in stale { release(id) }
+        let limit = -PoolCulling.aheadLimit
+        var shown = 0
+        for item in active.values {
+            let far = item.root.position.z < limit
+            item.root.perfSetHidden(far)
+            if !far { shown += 1 }
+        }
+        PoolCulling.count(shown)
     }
 
     func releaseAll() {
@@ -74,6 +84,41 @@ final class KeyedPool<Item: PooledItem> {
         guard let item = active.removeValue(forKey: id) else { return }
         item.root.isHidden = true
         spare.append(item)
+    }
+}
+
+/// Writes that skip SceneKit when the value is already there. Every property write on a node marks
+/// it dirty for the renderer, even when the value is unchanged.
+extension SCNNode {
+    func perfSetHidden(_ hidden: Bool) {
+        if isHidden != hidden { isHidden = hidden }
+    }
+
+    func perfSetOpacity(_ value: CGFloat) {
+        if opacity != value { opacity = value }
+    }
+
+    func perfSetUniformScale(_ value: Float) {
+        let current = scale
+        if current.x != value || current.y != value || current.z != value {
+            scale = SCNVector3(value, value, value)
+        }
+    }
+
+    func perfSetPosition(_ value: SCNVector3) {
+        let current = position
+        if current.x != value.x || current.y != value.y || current.z != value.z { position = value }
+    }
+
+    func perfSetEuler(_ value: SCNVector3) {
+        let current = eulerAngles
+        if current.x != value.x || current.y != value.y || current.z != value.z { eulerAngles = value }
+    }
+}
+
+extension SCNParticleSystem {
+    func perfSetBirthRate(_ value: CGFloat) {
+        if birthRate != value { birthRate = value }
     }
 }
 

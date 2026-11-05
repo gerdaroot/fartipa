@@ -5,10 +5,18 @@ struct UpgradesScreen: View {
     @ObservedObject var game: BikeGame
 
     var body: some View {
+        ZStack {
+            MenuVignette()
+            content
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: 10) {
             ScreenTopBar(title: "Прокачка", coins: game.profile.coins, back: { game.goHub() })
             // Leaves the showcase bike visible above the list.
-            Spacer(minLength: 150)
+            Spacer(minLength: 130)
+            MenuUpgradeSummary(level: MenuProgress.level(of: game.profile), maxLevel: MenuProgress.maxLevel)
             MessageBanner(notices: game.notices)
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 10) {
@@ -23,7 +31,7 @@ struct UpgradesScreen: View {
                 }
                 .padding(10)
             }
-            .background(PanelBackground(cornerRadius: 26))
+            .background(PanelBackground(cornerRadius: 26, rim: Palette.neonPink.opacity(0.45)))
             .layoutPriority(1)
         }
         .padding(.horizontal, 14)
@@ -51,6 +59,7 @@ private struct UpgradeRow: View {
                     colors: [Palette.goldTop, Palette.goldBottom], startPoint: .top, endPoint: .bottom
                 )))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.outline, lineWidth: 2))
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Palette.goldEdge).offset(y: 3))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
                 Text(info.name.uppercased())
@@ -68,9 +77,14 @@ private struct UpgradeRow: View {
             buyButton
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Palette.hairline, lineWidth: 1))
+        .background(rowShape.fill(LinearGradient(
+            colors: [Color.white.opacity(0.10), Color.white.opacity(0.03)], startPoint: .top, endPoint: .bottom
+        )))
+        .overlay(rowShape.strokeBorder(isMaxed ? Palette.gold.opacity(0.8) : Palette.hairline, lineWidth: isMaxed ? 2 : 1))
     }
+
+    private var rowShape: RoundedRectangle { RoundedRectangle(cornerRadius: 18, style: .continuous) }
+    private var isMaxed: Bool { price == nil }
 
     private var effect: some View {
         HStack(spacing: 4) {
@@ -140,5 +154,47 @@ enum UpgradeLook {
         case .luck: return "gift.fill"
         case .raincoat: return "umbrella.fill"
         }
+    }
+}
+
+/// The biker level and a bar of everything bought so far.
+private struct MenuUpgradeSummary: View {
+    let level: Int
+    let maxLevel: Int
+
+    private var share: CGFloat {
+        guard maxLevel > 1 else { return 1 }
+        return CGFloat(level - 1) / CGFloat(maxLevel - 1)
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            MenuLevelBadge(level: level)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("УРОВЕНЬ БАЙКЕРА")
+                    .font(GameFont.label(13))
+                    .foregroundStyle(Palette.cream)
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.black.opacity(0.55))
+                        Capsule()
+                            .fill(LinearGradient(colors: [Palette.neonPink, Palette.violetTop], startPoint: .leading, endPoint: .trailing))
+                            .frame(width: max(10, proxy.size.width * min(1, max(0, share))))
+                    }
+                    .overlay(Capsule().strokeBorder(Palette.outline, lineWidth: 1.5))
+                }
+                .frame(height: 12)
+            }
+            Text("\(level - 1)/\(maxLevel - 1)")
+                .font(GameFont.label(15).monospacedDigit())
+                .foregroundStyle(Palette.gold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(PanelBackground(cornerRadius: 18))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Уровень байкера \(level), куплено улучшений \(level - 1) из \(maxLevel - 1)")
     }
 }

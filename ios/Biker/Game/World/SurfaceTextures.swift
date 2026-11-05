@@ -1,5 +1,12 @@
 import UIKit
 
+/// The poop pile as raw data: `side` x `side` RGBA colours and heights, seamless.
+struct TexPoopTile {
+    let side: Int
+    let albedo: Data
+    let heights: [Float]
+}
+
 /// Colour, normal and roughness maps of one surface. All three tile without a seam.
 struct SurfaceSet {
     let albedo: UIImage
@@ -23,14 +30,32 @@ enum SurfaceTextures {
     private static let road = Recipe(brightness: 1.05, warmth: 1.05, normalStrength: 2.4, wetBase: 0.06, dryRange: 0.4)
     private static let dirt = Recipe(brightness: 0.55, warmth: 0.95, normalStrength: 3.2, wetBase: 0.3, dryRange: 0.5)
 
-    /// Heavy: run it off the main thread.
-    static func roadSurface(seed: UInt32) -> SurfaceSet? { make(seed: seed, recipe: road) }
-    static func groundSurface(seed: UInt32) -> SurfaceSet? { make(seed: seed, recipe: dirt) }
+    /// Heavy: run it off the main thread. With the bundled asphalt photo the poop lies on a
+    /// stained wet road; without it the road is all poop, as before.
+    static func roadSurface(seed: UInt32) -> SurfaceSet? {
+        TexPhotos.shared.loadIfNeeded()
+        guard let tile = poopTile(seed: seed, recipe: road) else { return nil }
+        if let asphalt = TexPhotos.shared.maps(.asphalt),
+           let blended = TexRoadBlend.road(tile, asphalt: asphalt, normalStrength: road.normalStrength) {
+            return blended
+        }
+        return surfaceSet(tile, recipe: road)
+    }
 
-    private static func make(seed: UInt32, recipe: Recipe) -> SurfaceSet? {
+    /// Heavy: run it off the main thread. Tinted mud photo, or poop dirt without it.
+    static func groundSurface(seed: UInt32) -> SurfaceSet? {
+        TexPhotos.shared.loadIfNeeded()
+        if let mud = TexPhotos.shared.maps(.mud), let set = TexRoadBlend.ground(mud) { return set }
+        guard let tile = poopTile(seed: seed, recipe: dirt) else { return nil }
+        return surfaceSet(tile, recipe: dirt)
+    }
+
+    /// The pile's colours and heights, mirrored both ways so the tile repeats without a seam.
+    private static func poopTile(seed: UInt32, recipe: Recipe) -> TexPoopTile? {
         let field = HeightField(widthPoints: fieldPoints, heightPoints: fieldPoints, scale: 1, seed: seed)
         _ = field.flush()
         let side = field.width
+        guard side > 1 else { return nil }
         let colors = field.rgba(in: field.fullRect)
         var heights = [Float](repeating: 0, count: side * side)
         for y in 0..<side {
@@ -38,13 +63,19 @@ enum SurfaceTextures {
                 heights[x + y * side] = field.heightAt(xPoints: Float(x), yPoints: Float(y))
             }
         }
-        let out = side * 2
-        let albedo = mirroredAlbedo(colors, side: side, recipe: recipe)
-        let mirrored = mirroredHeights(heights, side: side)
+        return TexPoopTile(
+            side: side * 2,
+            albedo: mirroredAlbedo(colors, side: side, recipe: recipe),
+            heights: mirroredHeights(heights, side: side)
+        )
+    }
+
+    private static func surfaceSet(_ tile: TexPoopTile, recipe: Recipe) -> SurfaceSet? {
+        let out = tile.side
         guard
-            let albedoImage = ImageMaker.opaqueImage(albedo, width: out, height: out),
-            let normalImage = ImageMaker.opaqueImage(normals(mirrored, side: out, strength: recipe.normalStrength), width: out, height: out),
-            let roughImage = ImageMaker.opaqueImage(roughness(mirrored, side: out, recipe: recipe), width: out, height: out)
+            let albedoImage = ImageMaker.opaqueImage(tile.albedo, width: out, height: out),
+            let normalImage = ImageMaker.opaqueImage(normals(tile.heights, side: out, strength: recipe.normalStrength), width: out, height: out),
+            let roughImage = ImageMaker.opaqueImage(roughness(tile.heights, side: out, recipe: recipe), width: out, height: out)
         else { return nil }
         return SurfaceSet(albedo: UIImage(cgImage: albedoImage), normal: UIImage(cgImage: normalImage), roughness: UIImage(cgImage: roughImage))
     }
@@ -86,7 +117,7 @@ enum SurfaceTextures {
     }
 
     /// Tangent-space normals from central differences, wrapping at the edges.
-    private static func normals(_ heights: [Float], side: Int, strength: Float) -> Data {
+    static func normals(_ heights: [Float], side: Int, strength: Float) -> Data {
         var data = Data(count: side * side * 4)
         let scale = strength / 16
         data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in

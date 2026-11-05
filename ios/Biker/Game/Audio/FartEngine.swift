@@ -28,6 +28,8 @@ final class FartEngine {
     private static let rumbleFastDecibels: Double = 2
     private static let presenceBoostDecibels: Double = 8
     private static let driveBoostPercent: Double = 40
+    /// Below this wet share the distortion unit is bypassed.
+    private static let driveBypassPercent: Float = 0.5
 
     private static let attackTime: Double = 0.15
     private static let releaseTime: Double = 0.22
@@ -73,6 +75,7 @@ final class FartEngine {
         var rumble: Float = -100
         var presence: Float = -100
         var drive: Float = -1
+        var bypassed = false
     }
 
     init(engine: AVAudioEngine, voiceFormat: AVAudioFormat, busFormat: AVAudioFormat) {
@@ -225,6 +228,12 @@ final class FartEngine {
         if abs(drive - written.drive) > 0.5 {
             distortion.wetDryMix = drive
             written.drive = drive
+        }
+        // A fully dry distortion still runs its DSP on the audio thread; bypass it outside boosts.
+        let idle = drive < Self.driveBypassPercent
+        if idle != written.bypassed {
+            distortion.bypass = idle
+            written.bypassed = idle
         }
     }
 

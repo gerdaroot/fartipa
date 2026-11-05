@@ -15,6 +15,8 @@ final class PissBody {
     private static let yawSpread = 0.14
     /// Where loose drops leave the stream while it pours.
     private static let dripU = 0.7
+    /// A cloud this faint is hidden instead of drawn.
+    private static let invisibleOpacity: CGFloat = 0.01
 
     /// Leans the whole arc about the landing point; the item adds it to its root.
     let lean = SCNNode()
@@ -62,6 +64,7 @@ final class PissBody {
         for piece in pieces { piece.isHidden = true }
         head.isHidden = true
         cloud.opacity = 0
+        cloud.isHidden = true
         lean.eulerAngles = SCNVector3(0, 0, 0)
     }
 
@@ -81,28 +84,31 @@ final class PissBody {
         }
         let angle = atan((landingX - center) / PissArc.height)
         let clamped = max(-PissBody.maxLean, min(PissBody.maxLean, angle))
-        lean.eulerAngles = SCNVector3(0, 0, Float(clamped))
+        lean.perfSetEuler(SCNVector3(0, 0, Float(clamped)))
     }
 
     /// Shows the liquid between `tail` and `front`, both as `u` along the arc.
+    /// Only writes what changed; a fully faded cloud (a big transparent quad) is hidden, not drawn.
     func show(front: Double, tail: Double, cloudOpacity: Double, dripRate: CGFloat) {
         let full = front >= 1 && tail <= 0
         let empty = front <= 0 || tail >= 1
-        tube.isHidden = !full
+        tube.perfSetHidden(!full)
         for index in pieces.indices {
             let inside = pieceStart[index] < front && pieceEnd[index] > tail
-            pieces[index].isHidden = full || empty || !inside
+            pieces[index].perfSetHidden(full || empty || !inside)
         }
         let arriving = !full && !empty && front < 1
-        head.isHidden = !arriving
-        cloud.opacity = CGFloat(max(0, min(1, cloudOpacity)))
+        head.perfSetHidden(!arriving)
+        let opacity = CGFloat(max(0, min(1, cloudOpacity)))
+        cloud.perfSetHidden(opacity <= PissBody.invisibleOpacity)
+        cloud.perfSetOpacity(opacity)
         if arriving {
             place(head, at: front)
             aimDrips(at: front)
         } else if full {
             aimDrips(at: PissBody.dripU)
         }
-        drips.birthRate = empty ? 0 : dripRate
+        drips.perfSetBirthRate(empty ? 0 : dripRate)
     }
 
     private func place(_ node: SCNNode, at u: Double) {

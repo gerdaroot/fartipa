@@ -15,13 +15,13 @@ final class CityKit {
     let library: MaterialLibrary
     private(set) var signMaterials: [SCNMaterial] = []
     private(set) var facadeNames: [String] = []
-    private var facadeImages: [FacadeStyle: (base: UIImage, glow: UIImage)] = [:]
+    /// Stand-ins until the background pass paints the real facades (see `TexDress`): they keep
+    /// the facade materials on their textured shader, so the swap is only a texture upload.
+    private let facadeWall = BikeTextures.solid(UIColor(white: 0.12, alpha: 1))
+    private let facadeDark = BikeTextures.solid(.black)
 
     init(library: MaterialLibrary) {
         self.library = library
-        for style in FacadeStyle.allCases {
-            facadeImages[style] = CityTextures.facade(style, seed: UInt64(style.rawValue) &+ 3)
-        }
         let placeholder = BikeTextures.solid(UIColor(white: 0.02, alpha: 1))
         for index in CityTextures.slogans.indices {
             signMaterials.append(library.shared("sign-\(index)") { WorldMaterials.screen(placeholder, boost: 1.1) })
@@ -50,17 +50,22 @@ final class CityKit {
         }
     }
 
-    /// The facade of one style stretched over `width` x `height` metres without distorting windows.
-    func facade(_ style: FacadeStyle, width: Double, height: Double) -> SCNMaterial {
+    /// The facade of one style (and window grid `variant`) stretched over `width` x `height` metres
+    /// without distorting windows. The pictures arrive from the background pass.
+    func facade(_ style: FacadeStyle, width: Double, height: Double, variant: Int = 0) -> SCNMaterial {
         let across = max(0.25, (width / Self.facadeTileWidth * 4).rounded() / 4)
         let up = max(0.125, (height / Self.facadeTileHeight * 8).rounded() / 8)
-        let name = "facade-\(style.rawValue)-\(across)-\(up)"
-        let images = facadeImages[style]
+        let look = TexFacadeLook(style: style, variant: max(0, min(TexFacadePaint.variants - 1, variant)))
+        let suffix = look.variant > 0 ? "-v\(look.variant)" : ""
+        let name = "facade-\(style.rawValue)-\(across)-\(up)\(suffix)"
+        library.registerFacade(name, look: look)
         let glass = style == .glass
+        let wall = facadeWall
+        let dark = facadeDark
         let material = library.shared(name) {
-            let made = WorldMaterials.pbr(.white, metalness: glass ? 0.55 : 0.05, roughness: glass ? 0.18 : 0.75)
-            made.diffuse.contents = images?.base
-            made.emission.contents = images?.glow
+            let made = WorldMaterials.pbr(.white, metalness: glass ? 0.45 : 0.05, roughness: glass ? 0.2 : 0.75)
+            made.diffuse.contents = wall
+            made.emission.contents = dark
             made.emission.intensity = 1.15
             for property in [made.diffuse, made.emission] {
                 WorldMaterials.repeating(property, scaleX: Float(across), scaleY: Float(up))
@@ -71,6 +76,11 @@ final class CityKit {
         return material
     }
 
+    /// The game's own poster for building walls.
+    var gamePoster: SCNMaterial {
+        library.shared("gamePoster") { WorldMaterials.screen(BikeTextures.defaultPoster(), boost: 0.55) }
+    }
+
     var neonA: SCNMaterial { library.shared("neonA") { WorldMaterials.glow(UIColor(red: 1, green: 0.2, blue: 0.6, alpha: 1), boost: 1.2) } }
     var neonB: SCNMaterial { library.shared("neonB") { WorldMaterials.glow(UIColor(red: 0.1, green: 0.9, blue: 1, alpha: 1), boost: 1.2) } }
     var beacon: SCNMaterial { library.shared("beacon") { WorldMaterials.glow(UIColor(red: 1, green: 0.1, blue: 0.08, alpha: 1), boost: 1.5) } }
@@ -79,7 +89,7 @@ final class CityKit {
     var tubeLight: SCNMaterial { library.shared("tubeLight") { WorldMaterials.glow(UIColor(red: 0.85, green: 0.95, blue: 1, alpha: 1), boost: 1.4) } }
 
     var steel: SCNMaterial {
-        library.shared("steel") { WorldMaterials.pbr(UIColor(white: 0.32, alpha: 1), metalness: 0.85, roughness: 0.35) }
+        library.shared("steel") { WorldMaterials.pbr(UIColor(white: 0.36, alpha: 1), metalness: 0.55, roughness: 0.4) }
     }
 
     var concrete: SCNMaterial {

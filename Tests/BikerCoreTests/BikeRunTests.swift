@@ -20,6 +20,35 @@ enum TestRide {
         return (run, events)
     }
 
+    /// The careful rider: steers with `autopilotTarget` and swipes up when `autopilotWantsJump` says so.
+    static func autopilot(_ start: BikeRun, seconds: Double) -> (run: BikeRun, events: [BikeEvent]) {
+        var run = start
+        var events: [BikeEvent] = []
+        var elapsed = 0.0
+        while elapsed < seconds, !run.isOver {
+            if run.autopilotWantsJump() { run.jump() }
+            events += run.update(dt: frame, targetX: run.autopilotTarget())
+            elapsed += frame
+        }
+        return (run, events)
+    }
+
+    /// Like `ride`, and also gathers every frame's moments.
+    static func rideWithMoments(
+        _ start: BikeRun, seconds: Double, steer: (BikeRun) -> Double
+    ) -> (run: BikeRun, events: [BikeEvent], moments: [RideMoment]) {
+        var run = start
+        var events: [BikeEvent] = []
+        var moments: [RideMoment] = []
+        var elapsed = 0.0
+        while elapsed < seconds, !run.isOver {
+            events += run.update(dt: frame, targetX: steer(run))
+            moments += run.moments
+            elapsed += frame
+        }
+        return (run, events, moments)
+    }
+
     /// An empty road for hand-placed objects.
     static func emptyRoad(loadout: RunLoadout = .base) -> BikeRun {
         BikeRun(seed: 1, loadout: loadout, populatesRoad: false)
@@ -41,7 +70,7 @@ final class BikeRunCoreTests: XCTestCase {
 
     func testCarefulRiderSurvivesFiveMinutesOnManySeeds() {
         for seed in UInt64(1)...24 {
-            let (run, events) = TestRide.ride(BikeRun(seed: seed), seconds: 300) { $0.autopilotTarget() }
+            let (run, events) = TestRide.autopilot(BikeRun(seed: seed), seconds: 300)
             XCTAssertFalse(events.contains(.hit), "seed \(seed) hit at \(Int(run.distance)) m")
             XCTAssertFalse(events.contains(.shieldBlocked), "seed \(seed)")
             XCTAssertFalse(run.isOver, "seed \(seed)")
@@ -54,7 +83,7 @@ final class BikeRunCoreTests: XCTestCase {
     func testCarefulRiderSurvivesOnAFullyUpgradedBikeToo() {
         for seed in UInt64(1)...12 {
             let start = BikeRun(seed: seed, loadout: .maxed)
-            let (run, events) = TestRide.ride(start, seconds: 300) { $0.autopilotTarget() }
+            let (run, events) = TestRide.autopilot(start, seconds: 300)
             XCTAssertFalse(events.contains(.hit), "seed \(seed) hit at \(Int(run.distance)) m")
             XCTAssertFalse(events.contains(.shieldBlocked), "seed \(seed)")
         }
@@ -106,7 +135,7 @@ final class BikeRunCoreTests: XCTestCase {
     }
 
     func testOldObjectsAreRemoved() {
-        let (run, _) = TestRide.ride(BikeRun(seed: 2), seconds: 120) { $0.autopilotTarget() }
+        let (run, _) = TestRide.autopilot(BikeRun(seed: 2), seconds: 120)
         let count = run.streams.count + run.vehicles.count + run.piles.count + run.roadCoins.count
         XCTAssertLessThan(count, 300)
         XCTAssertTrue(run.roadCoins.allSatisfy { $0.z >= run.distance - BikeRun.behind })
@@ -338,7 +367,7 @@ final class RoadLayoutTests: XCTestCase {
     }
 
     func testRideAnnouncesEachDistrictOnce() {
-        let (_, events) = TestRide.ride(BikeRun(seed: 6), seconds: 300) { $0.autopilotTarget() }
+        let (_, events) = TestRide.autopilot(BikeRun(seed: 6), seconds: 300)
         let entered = events.compactMap { event -> Int? in
             if case .districtEntered(let index) = event { return index }
             return nil

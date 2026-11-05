@@ -27,8 +27,10 @@ final class RoadLayer {
     private static let sidewalkHeight = RoadMetrics.sidewalkHeight
     private static let groundWidth = 110.0
     /// One road texture repeat is this long, so a tile holds a whole number of them.
-    private static let roadRepeat = 8.0
-    private static let groundRepeat = 10.0
+    private static let roadRepeat = 5.0
+    /// The road picture repeats this many times across the road (about 4.3 m each).
+    private static let roadAcross: Float = 2
+    private static let groundRepeat = 8.0
 
     private let row: SceneryRow
     private let library: MaterialLibrary
@@ -48,7 +50,7 @@ final class RoadLayer {
     /// Puts the generated poop maps on the road, ground and sidewalks.
     func applySurfaces(road: SurfaceSet?, ground: SurfaceSet?) {
         if let road, let material = library.material(named: "road") {
-            setMaps(material, road, scaleX: 1, scaleY: Float(Self.tileLength / Self.roadRepeat))
+            setMaps(material, road, scaleX: Self.roadAcross, scaleY: Float(Self.tileLength / Self.roadRepeat))
             material.diffuse.contents = road.albedo
         }
         if let ground, let material = library.material(named: "ground") {
@@ -56,11 +58,13 @@ final class RoadLayer {
             setMaps(material, ground, scaleX: across, scaleY: Float(Self.tileLength / Self.groundRepeat))
             material.diffuse.contents = ground.albedo
         }
-        if let ground, let material = library.material(named: "sidewalk") {
+        if let ground, TexPhotos.shared.maps(.sidewalk) == nil, let material = library.material(named: "sidewalk") {
             material.normal.contents = ground.normal
             material.normal.intensity = 0.35
             WorldMaterials.repeating(material.normal, scaleX: 1, scaleY: Float(Self.tileLength / 4))
         }
+        // The photo maps were decoded on the same background pass; put them on every other material.
+        TexDress.dressAll(library)
     }
 
     private func setMaps(_ material: SCNMaterial, _ set: SurfaceSet, scaleX: Float, scaleY: Float) {
@@ -122,7 +126,7 @@ final class RoadLayer {
         }
         let curbGlow = library.shared("curbGlow") { WorldMaterials.glow(UIColor(red: 1, green: 0.2, blue: 0.6, alpha: 1), boost: 0.9) }
         let rail = library.shared("rail") {
-            WorldMaterials.pbr(UIColor(white: 0.55, alpha: 1), metalness: 0.9, roughness: 0.3)
+            WorldMaterials.pbr(UIColor(white: 0.55, alpha: 1), metalness: 0.55, roughness: 0.35)
         }
         let width = Self.sidewalkWidth
         let height = Self.sidewalkHeight

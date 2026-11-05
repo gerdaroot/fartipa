@@ -18,12 +18,21 @@ extension BikeRun {
     private static let horizonSeconds = 2.5
     private static let streamMargin = 0.2
     private static let vehicleMargin = 0.25
+    /// A vehicle counts as in the way this much earlier, so the bike never cuts across just in
+    /// front of a parked one (the bike moves sideways much slower than the road comes at it).
+    private static let vehicleLeadSeconds = 0.12
     private static let pileMargin = 0.2
     private static let crossingSeconds = 0.04
     private static let smallestClosing = 1.0
     private static let distancePenalty = 0.02
     private static let baitSeconds = 1.3
     private static let baitSpareSeconds = 0.25
+    private static let manholeMargin = 0.25
+    /// Hop when a pile or manhole in the way is at most this many seconds ahead, so the bike is
+    /// still in the air when it gets there.
+    private static let hopLeadSeconds = AirMeter.hopSeconds - 0.12
+    private static let hopMargin = 0.2
+    private static let flipSpareSeconds = 0.1
 
     /// Where a careful rider would steer now: the lane that stays open longest, and toward
     /// coins and pickups when there is time for that.
@@ -33,8 +42,46 @@ extension BikeRun {
         return baitX(threats, safeLane: lane) ?? lane
     }
 
+    /// Whether a careful rider would swipe up now: a flip off a ramp when it can land cleanly,
+    /// or a hop over a pile or manhole it is about to ride into.
+    func autopilotWantsJump() -> Bool {
+        if air.canFlip {
+            return air.elapsed + AirMeter.flipSeconds + Self.flipSpareSeconds < air.duration
+        }
+        guard air.canHop else { return false }
+        let currentSpeed = max(1, speed)
+        for hole in manholes {
+            let eta = (hole.z - distance) / currentSpeed
+            guard eta > 0, eta <= Self.hopLeadSeconds else { continue }
+            if abs(hole.x(atTime: time + eta) - x) < hole.kind.reach + Self.hopMargin { return true }
+        }
+        for pile in piles {
+            let eta = (pile.z - distance) / currentSpeed
+            guard eta > 0, eta <= Self.hopLeadSeconds else { continue }
+            if abs(pile.x - x) < Self.pileReach + Self.hopMargin { return true }
+        }
+        return false
+    }
+
     private func roadThreats() -> [RoadThreat] {
-        streamThreats() + vehicleThreats() + pileThreats()
+        streamThreats() + vehicleThreats() + pileThreats() + manholeThreats()
+    }
+
+    /// Geysers count whether they spout or not, and a lid where it will be.
+    private func manholeThreats() -> [RoadThreat] {
+        var threats: [RoadThreat] = []
+        let currentSpeed = max(1, speed)
+        for hole in manholes {
+            let eta = (hole.z - distance) / currentSpeed
+            guard eta >= 0, eta <= Self.horizonSeconds else { continue }
+            threats.append(
+                RoadThreat(
+                    start: eta - Self.crossingSeconds, end: eta + Self.crossingSeconds,
+                    x: hole.x(atTime: time + eta), halfWidth: hole.kind.reach + Self.manholeMargin
+                )
+            )
+        }
+        return threats
     }
 
     private func streamThreats() -> [RoadThreat] {
@@ -63,7 +110,7 @@ extension BikeRun {
             guard end >= 0, start <= Self.horizonSeconds else { continue }
             threats.append(
                 RoadThreat(
-                    start: max(0, start), end: end, x: vehicle.x,
+                    start: max(0, start - Self.vehicleLeadSeconds), end: end, x: vehicle.x,
                     halfWidth: vehicle.kind.halfWidth + Self.bikeHalfWidth + Self.vehicleMargin
                 )
             )
@@ -130,7 +177,9 @@ extension BikeRun {
     private func baitX(_ threats: [RoadThreat], safeLane: Double) -> Double? {
         let currentSpeed = max(1, speed)
         var bait: [(x: Double, z: Double)] = roadPickups.map { (x: $0.x, z: $0.z) }
-        bait += roadCoins.map { (x: $0.x, z: $0.z) }
+        for coin in roadCoins where coin.lift <= airHeight + RoadCoin.liftReach {
+            bait.append((x: coin.x, z: coin.z))
+        }
         var chosen: Double?
         var chosenEta = Self.baitSeconds
         for item in bait {

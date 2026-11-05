@@ -9,16 +9,8 @@ enum BikePhase: Equatable {
     case riding
     case paused
     case over
-}
-
-/// How a ride ended, for the results sheet.
-struct RideOutcome: Equatable {
-    let summary: RideSummary
-    let reward: RideReward
-    /// False when the player ended the ride from the pause sheet.
-    let crashed: Bool
-
-    var totalCoins: Int { reward.coinsEarned + reward.achievementCoins }
+    /// The missions board, opened from the hub (`openMissions`, back with `closeMissions`).
+    case missions
 }
 
 /// The glue: drives `BikeRun` every frame, feeds `BikeWorld` and `SoundPlayer`, keeps the `Profile`.
@@ -74,8 +66,12 @@ final class BikeGame: NSObject, ObservableObject {
     private var quality: AutoQuality
     /// The fart motor was told to run; outside a ride it is told to stop once, not every frame.
     private var rideAudioOn = false
+    var slowMo = RideSlowMo()
+    var missionWatch = RideMissionWatch()
     #if DEBUG
     var demoAutopilot = false
+    /// Freezes the demo ride mid-air off a ramp for the screenshot; the world keeps animating.
+    var demoHold = false
     private static let demoBoostAfter = 7.0
     #endif
 
@@ -110,7 +106,7 @@ final class BikeGame: NSObject, ObservableObject {
         guard displayLink == nil else { return }
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
         // The rate SceneKit renders at, so every drawn frame gets exactly one world update.
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+        link.playFollow(fps: world.targetFPS)
         link.add(to: .main, forMode: .common)
         displayLink = link
         Task { @MainActor [weak self] in
@@ -185,6 +181,8 @@ final class BikeGame: NSObject, ObservableObject {
         targetX = 0
         dragBase = nil
         feed.reset()
+        slowMo.reset()
+        missionWatch.start(with: profile.missions, now: now)
         notices.clearMessage()
         dressWorld()
         world.setCamera(.chase)
@@ -219,6 +217,16 @@ final class BikeGame: NSObject, ObservableObject {
         if current.activateBoost() {
             run = current
         } else {
+            haptics.failure()
+        }
+    }
+
+    /// «Пердёж-прыжок» on the ground, a flip in the air off a ramp.
+    func jump() {
+        guard phase == .riding, var current = run else { return }
+        if current.jump() {
+            run = current
+        } else if !current.isAirborne {
             haptics.failure()
         }
     }
@@ -268,6 +276,20 @@ final class BikeGame: NSObject, ObservableObject {
         dressWorld()
         world.setCamera(.showcase)
         phase = .upgrades
+    }
+
+    /// The missions board, from the hub.
+    func openMissions() {
+        guard phase != .riding, phase != .paused else { return }
+        leaveRide()
+        notices.clearMessage()
+        pendingPreview?.cancel()
+        phase = .missions
+    }
+
+    func closeMissions() {
+        guard phase == .missions else { return }
+        goHub()
     }
 
     func toggleMute() {
@@ -336,10 +358,12 @@ final class BikeGame: NSObject, ObservableObject {
         case .paused, .over:
             silenceRide()
             if let current = run { world.render(current, dt: dt, isLive: false) }
-        case .hub, .garage, .upgrades:
+        case .hub, .garage, .upgrades, .missions:
             silenceRide()
             world.renderIdle(dt: dt)
         }
+        // The world drops to 30 fps on a hot phone; every drawn frame still gets one update.
+        link.playFollow(fps: world.targetFPS)
     }
 
     /// Feeds the frame statistics; once a second it may lower the graphics and refresh the overlay.
@@ -361,18 +385,26 @@ final class BikeGame: NSObject, ObservableObject {
     private func stepRide(dt: Double, now time: Double) {
         guard var current = run else { return }
         #if DEBUG
+        if demoHold {
+            world.render(current, dt: dt, isLive: true)
+            return
+        }
         if demoAutopilot {
             targetX = current.autopilotTarget()
             if current.time > Self.demoBoostAfter, current.canBoost { current.activateBoost() }
+            if current.autopilotWantsJump() { current.jump() }
         }
         #endif
-        let events = current.update(dt: dt, targetX: targetX)
+        let step = slowMo.step(dt)
+        let events = current.update(dt: step, targetX: targetX)
         run = current
         if !events.isEmpty { world.react(to: events, run: current) }
-        world.render(current, dt: dt, isLive: !current.isOver)
+        world.render(current, dt: step, isLive: !current.isOver)
         feed.update(from: current, ridesBefore: profile.stats.rides, now: time)
+        for moment in current.moments { handle(moment, run: current, now: time) }
         for event in events { handle(event, run: current, now: time) }
         guard phase == .riding else { return }
+        announceMissions(current, now: time)
         let speed01 = min(1, max(0, current.rev))
         rideAudioOn = true
         sound.setRide(active: true, speed01: speed01, boosting: current.isBoosting)
@@ -381,15 +413,8 @@ final class BikeGame: NSObject, ObservableObject {
     // MARK: - Debug
 
     #if DEBUG
-    /// Plays the ride ahead without drawing it, for demo screenshots.
-    func fastForward(seconds: Double, autopilot: Bool) {
-        guard phase == .riding, var current = run else { return }
-        let step = Self.defaultStep
-        var left = seconds
-        while left > 0, !current.isOver {
-            _ = current.update(dt: step, targetX: autopilot ? current.autopilotTarget() : 0)
-            left -= step
-        }
+    /// Demo screenshots play the ride ahead without drawing it, then hand it back here.
+    func adoptDemoRun(_ current: BikeRun) {
         run = current
         targetX = current.x
         feed.update(from: current, ridesBefore: profile.stats.rides, now: now)

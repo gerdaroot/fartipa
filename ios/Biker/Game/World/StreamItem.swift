@@ -70,10 +70,10 @@ final class StreamItem: PooledItem {
         hasPoured = false
         isAimed = false
         markerStep = -1
-        for system in [spray, hops] {
-            system.birthRate = 0
-            system.reset()
-        }
+        spray.birthRate = 0
+        spray.reset()
+        hops.birthRate = 0
+        hops.reset()
         puddle.isHidden = true
         crown.isHidden = true
         for ripple in ripples { ripple.isHidden = true }
@@ -81,14 +81,18 @@ final class StreamItem: PooledItem {
     }
 
     /// `clock` drives the pulse and splash; `dt` is 0 while paused. The root is already placed.
+    /// Far streams (beyond `PoolCulling.detailAhead`) skip the crown, ripples, spray and drops:
+    /// a few pixels in the fog, but a dozen transparent draws and three particle systems each.
     func update(_ stream: PissStream, clock: Double, dt: Double) {
         if !isAimed {
             body.aim(side: StreamItem.side(of: stream), phase: stream.phase)
             isAimed = true
         }
+        let placed = root.position
+        let detailed = -placed.z < PoolCulling.detailAhead
         let warning = stream.isPouring ? 1 : max(0, min(1, stream.isVisible ? stream.warning : 0))
         updateMarker(warning: warning, pouring: stream.isPouring, clock: clock)
-        body.follow(landingX: Double(root.position.x), dt: dt)
+        body.follow(landingX: Double(placed.x), dt: dt)
         if stream.isPouring {
             hasPoured = true
             drainAge = 0
@@ -102,9 +106,10 @@ final class StreamItem: PooledItem {
         let tail = draining ? min(1, drainAge / fall) : 0
         let live = dt > 0
         let cloud = draining ? 1 - tail : warning / StreamItem.cloudFadeShare
-        body.show(front: front, tail: tail, cloudOpacity: cloud, dripRate: live ? PissParticles.dripRate * budget : 0)
-        updateSplash(pouring: stream.isPouring, live: live, clock: clock, phase: stream.phase)
-        updatePuddle(pouring: stream.isPouring, draining: draining, dt: dt)
+        let dripRate = live && detailed ? PissParticles.dripRate * budget : 0
+        body.show(front: front, tail: tail, cloudOpacity: cloud, dripRate: dripRate)
+        updateSplash(pouring: stream.isPouring && detailed, live: live, clock: clock, phase: stream.phase)
+        updatePuddle(pouring: stream.isPouring, draining: draining, ripples: detailed, dt: dt)
     }
 
     /// Streams in the right half come from the right, in the left half from the left.
@@ -133,45 +138,48 @@ final class StreamItem: PooledItem {
             marker.geometry?.firstMaterial = warningMaterials[index]
             markerStep = index
         }
-        let pulse = 0.5 + 0.5 * sin(clock * (8 + warning * 14))
         let markerScale = Float(0.45 + 0.75 * warning)
-        marker.scale = SCNVector3(markerScale, markerScale, markerScale)
-        marker.opacity = pouring ? 0.2 : CGFloat(0.45 + 0.55 * pulse)
-        let shadowScale = Float(0.25 + warning)
-        shadow.scale = SCNVector3(shadowScale, shadowScale, shadowScale)
-        shadow.opacity = CGFloat(0.2 + 0.6 * warning)
+        marker.perfSetUniformScale(markerScale)
+        if pouring {
+            marker.perfSetOpacity(0.2)
+        } else {
+            let pulse = 0.5 + 0.5 * sin(clock * (8 + warning * 14))
+            marker.perfSetOpacity(CGFloat(0.45 + 0.55 * pulse))
+        }
+        shadow.perfSetUniformScale(Float(0.25 + warning))
+        shadow.perfSetOpacity(CGFloat(0.2 + 0.6 * warning))
     }
 
     private func updateSplash(pouring: Bool, live: Bool, clock: Double, phase: Double) {
-        crown.isHidden = !pouring
-        if pouring {
+        crown.perfSetHidden(!pouring)
+        if pouring && live {
             let rise = Float(0.85 + 0.3 * sin(clock * 23 + phase) + 0.12 * sin(clock * 37))
             let spread = Float(1 + 0.08 * sin(clock * 17 + phase))
             crown.scale = SCNVector3(spread, rise, spread)
             crown.eulerAngles = SCNVector3(0, Float((clock * 1.3).truncatingRemainder(dividingBy: 2 * Double.pi)), 0)
         }
         let active = pouring && live
-        spray.birthRate = active ? PissParticles.sprayRate * budget : 0
-        hops.birthRate = active ? PissParticles.hopRate * budget : 0
+        spray.perfSetBirthRate(active ? PissParticles.sprayRate * budget : 0)
+        hops.perfSetBirthRate(active ? PissParticles.hopRate * budget : 0)
     }
 
-    private func updatePuddle(pouring: Bool, draining: Bool, dt: Double) {
-        puddle.isHidden = !(pouring || draining)
+    private func updatePuddle(pouring: Bool, draining: Bool, ripples showRipples: Bool, dt: Double) {
+        puddle.perfSetHidden(!(pouring || draining))
         if pouring {
-            let size = Float(0.3 + 0.75 * min(1, pourAge / StreamItem.puddleGrowSeconds))
-            puddle.scale = SCNVector3(size, size, size)
-            puddle.opacity = 1
+            puddle.perfSetUniformScale(Float(0.3 + 0.75 * min(1, pourAge / StreamItem.puddleGrowSeconds)))
+            puddle.perfSetOpacity(1)
         } else if draining {
-            puddle.opacity = CGFloat(max(0, 1 - drainAge / StreamItem.puddleLingerSeconds))
+            puddle.perfSetOpacity(CGFloat(max(0, 1 - drainAge / StreamItem.puddleLingerSeconds)))
         }
         rippleClock += pouring ? dt : 0
-        for (index, ripple) in ripples.enumerated() {
-            ripple.isHidden = !pouring
-            guard pouring else { continue }
+        let rippling = pouring && showRipples
+        for index in ripples.indices {
+            let ripple = ripples[index]
+            ripple.perfSetHidden(!rippling)
+            guard rippling, dt > 0 else { continue }
             let age = (rippleClock / StreamItem.rippleSeconds + Double(index) * 0.5).truncatingRemainder(dividingBy: 1)
-            let size = Float(0.35 + 2.1 * age)
-            ripple.scale = SCNVector3(size, size, size)
-            ripple.opacity = CGFloat(0.7 * (1 - age))
+            ripple.perfSetUniformScale(Float(0.35 + 2.1 * age))
+            ripple.perfSetOpacity(CGFloat(0.7 * (1 - age)))
         }
     }
 }

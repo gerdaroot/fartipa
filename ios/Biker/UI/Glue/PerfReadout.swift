@@ -22,11 +22,16 @@ final class PerfReadout: ObservableObject {
         defaults.set(on, forKey: Self.key)
     }
 
+    /// Builds the text once per second, and only while the overlay is on. Draw calls and triangles
+    /// are on SceneKit's own statistics bar, shown together with this overlay.
     func publish(_ report: FrameMonitor.Report, highQuality: Bool, thermal: ProcessInfo.ThermalState) {
         guard isOn else { return }
         let quality = highQuality ? "высокое" : "низкое"
-        let next = "\(report.fps) FPS · худший \(report.worstMs) мс · фризов >50 мс: \(report.hitches)\n"
+        var next = "\(report.fps) FPS · худший \(report.worstMs) мс · фризов >50 мс: \(report.hitches) · >100 мс: \(report.freezes)\n"
             + "графика: \(quality) · нагрев: \(Self.name(thermal))"
+        if let world = PerfWorldLink.world {
+            next += "\n" + world.perfSummary
+        }
         if next != line { line = next }
     }
 
@@ -41,11 +46,26 @@ final class PerfReadout: ObservableObject {
     }
 }
 
+/// The world the overlay reports on (tier, frame-rate cap, pooled objects drawn). Set by `BikeWorld`.
+@MainActor
+enum PerfWorldLink {
+    static weak var world: BikeWorld?
+}
+
 extension BikeGame {
     /// The hidden diagnostics: fps, worst frame and hitches, plus SceneKit's own statistics bar.
     func togglePerfOverlay() {
         perf.setOn(!perf.isOn)
         world.view.showsStatistics = perf.isOn
         haptics.tick()
+    }
+}
+
+extension BikeWorld {
+    /// What the performance overlay shows about the scene. Built only when the overlay asks.
+    var perfSummary: String {
+        let shadows = settings.shadows ? "тени" : "без теней"
+        let shading = PerfMaterialThrift.isCheap ? "ламберт" : "PBR"
+        return "уровень: \(tier.title) · \(targetFPS) к/с · объектов: \(PoolCulling.shown) · \(shadows) · \(shading)"
     }
 }

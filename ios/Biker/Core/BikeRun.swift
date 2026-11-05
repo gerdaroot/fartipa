@@ -2,8 +2,11 @@ import Foundation
 
 /// One ride: all the rules, no graphics. Same seed, loadout and input give the same ride.
 ///
-/// Call `update` every frame with the finger's target and react to the returned events.
-/// Draw `streams`, `vehicles`, `piles`, `roadCoins`, `roadPickups` relative to `distance`.
+/// Call `update` every frame with the finger's target and react to the returned events and to
+/// `moments`. Draw `streams`, `vehicles`, `piles`, `roadCoins`, `roadPickups`, `ramps` and `manholes`
+/// relative to `distance`, and lift the bike by `airHeight`.
+/// What the screen reads is in `BikeRun+Readout.swift`, what touching things does in
+/// `BikeRun+Contacts.swift`. State that is not `private(set)` is written only by those two files.
 struct BikeRun: Equatable {
     static let laneX = [-2.6, 0.0, 2.6]
     static let roadHalfWidth = 4.0
@@ -23,6 +26,12 @@ struct BikeRun: Equatable {
     static let vehicleNearMissMargin = 1.0
     static let nearMissScore = 50
     static let smashScore = 100
+    /// Flying over a vehicle off a ramp.
+    static let vaultScore = 150
+    /// Each clean flip, times the combo.
+    static let flipScore = 250
+    /// Score for each second in the air off a ramp.
+    static let airScorePerSecond = 100.0
     static let coinScore = 5
     static let lookAhead = 320.0
     static let behind = 12.0
@@ -31,42 +40,56 @@ struct BikeRun: Equatable {
     static let doublerSeconds = 10.0
     static let magnetReach = 6.0
     static let magnetAhead = 6.0
+    /// A road event's banner shows this many seconds before it starts.
+    static let eventLeadSeconds = 1.5
 
-    private static let maxStep = 0.1
-    private static let hitSlowdownSeconds = 1.0
-    private static let hitSlowdownFactor = 0.6
-    private static let shieldGraceSeconds = 0.8
-    private static let startingBoostShare = 1.0 / 3
-    private static let goldenBoostFactor = 5.0
-    private static let wholeCoinTolerance = 1e-9
+    static let maxStep = 0.1
+    static let hitSlowdownSeconds = 1.0
+    static let hitSlowdownFactor = 0.6
+    static let shieldGraceSeconds = 0.8
+    static let startingBoostShare = 1.0 / 3
+    static let goldenBoostFactor = 5.0
+    static let wholeCoinTolerance = 1e-9
 
     let loadout: RunLoadout
     private(set) var x = 0.0
     private(set) var distance = 0.0
     /// Seconds since the start.
     private(set) var time = 0.0
-    private(set) var lives: Int
-    private(set) var invulnerable = 0.0
+    var lives: Int
+    var invulnerable = 0.0
     private(set) var isOver = false
     private(set) var streams: [PissStream] = []
-    private(set) var vehicles: [Vehicle] = []
+    var vehicles: [Vehicle] = []
     private(set) var piles: [PoopPile] = []
-    private(set) var roadCoins: [RoadCoin] = []
-    private(set) var roadPickups: [RoadPickup] = []
-    private(set) var powerUps = PowerUpTimers()
+    var roadCoins: [RoadCoin] = []
+    var roadPickups: [RoadPickup] = []
+    private(set) var ramps: [RoadRamp] = []
+    private(set) var manholes: [Manhole] = []
+    /// Road events ahead and the one under way, in order.
+    private(set) var roadEvents: [RoadEvent] = []
+    var powerUps = PowerUpTimers()
+    /// The jump: height, cooldown and flips.
+    var air = AirMeter()
+    /// What the latest `update` saw besides its events: jumps, landings, tricks, road events.
+    var moments: [RideMoment] = []
 
-    private var boostTank: BoostTank
-    private var comboMeter: ComboMeter
+    var boostTank: BoostTank
+    var comboMeter: ComboMeter
     private var generator: RoadGenerator
     private let populatesRoad: Bool
-    private var slowdownLeft = 0.0
-    private var slowdownFactor = 1.0
-    private var skidLeft = 0.0
-    private var coinBank = 0.0
-    private var coinScoreTotal = 0
-    private var bonusScore = 0
-    private var tally = RideSummary()
+    var slowdownLeft = 0.0
+    var slowdownFactor = 1.0
+    var skidLeft = 0.0
+    var coinBank = 0.0
+    var coinScoreTotal = 0
+    var bonusScore = 0
+    var tally = RideSummary()
+    /// Where the current stretch without a lost life began.
+    var cleanSince = 0.0
+    private var lastAnnouncedEvent = 0
     private var pendingEvents: [BikeEvent] = []
+    private var pendingMoments: [RideMoment] = []
 
     /// `populatesRoad: false` gives an empty road for tests and tutorials: fill it with `place`.
     init(seed: UInt64, loadout: RunLoadout = .base, populatesRoad: Bool = true) {
@@ -81,57 +104,6 @@ struct BikeRun: Equatable {
         spawnAhead()
     }
 
-    // MARK: - What the screen reads
-
-    /// The speed at a point of the road without slowdowns or gas. It climbs with distance, so
-    /// the road generator knows exactly how fast the rider will come to any place.
-    static func cruisingSpeed(atDistance distance: Double, topSpeed: Double) -> Double {
-        let ramp = max(0, min(1, distance / rampDistance))
-        return startSpeed + (topSpeed - startSpeed) * ramp
-    }
-
-    var cruisingSpeed: Double {
-        Self.cruisingSpeed(atDistance: distance, topSpeed: loadout.topSpeed)
-    }
-
-    var speed: Double {
-        if boostTank.isActive { return cruisingSpeed * Self.boostFactor }
-        return slowdownLeft > 0 ? cruisingSpeed * slowdownFactor : cruisingSpeed
-    }
-
-    /// 0 at the start of a ride, 1 at top speed, above 1 under gas. For the engine sound and camera.
-    var rev: Double {
-        (speed - Self.startSpeed) / max(1, loadout.topSpeed - Self.startSpeed)
-    }
-
-    var score: Int { Int(distance) + coinScoreTotal + bonusScore }
-    /// Coins earned this ride, multipliers included.
-    var coins: Int { Int(coinBank + Self.wholeCoinTolerance) }
-    var district: District { District.at(distance: distance) }
-    /// The current multiplier, 1 when there is no combo.
-    var combo: Int { comboMeter.combo }
-    /// Time left before the combo drops, 0...1.
-    var comboFraction: Double { comboMeter.fraction }
-    var isBoosting: Bool { boostTank.isActive }
-    var canBoost: Bool { !isOver && boostTank.canActivate }
-    /// How full the gas tank is, 0...1.
-    var boostFraction: Double { boostTank.fraction }
-    /// Seconds of gas in the tank.
-    var boostCharge: Double { boostTank.charge }
-    var isSkidding: Bool { skidLeft > 0 }
-    var maxLives: Int { loadout.startingLives + Self.extraLivesCap }
-
-    /// What the ride added up to so far.
-    var summary: RideSummary {
-        var result = tally
-        result.seconds = time
-        result.distance = Int(distance)
-        result.score = score
-        result.coins = coins
-        result.districtIndex = district.index
-        return result
-    }
-
     // MARK: - Input
 
     /// Opens the gas. Returns false when the tank is too empty. `boostStart` comes with the next update.
@@ -143,21 +115,45 @@ struct BikeRun: Equatable {
         return true
     }
 
+    /// Swipe up: a fart hop on the road, or a flip in the air off a ramp. Returns false when
+    /// nothing happens (recharging, already flipping, ride over). The moment comes with the next update.
+    @discardableResult
+    mutating func jump() -> Bool {
+        guard !isOver else { return false }
+        if air.kind == .ramp {
+            guard air.startFlip() else { return false }
+            pendingMoments.append(.flipStarted)
+            return true
+        }
+        guard air.hop() else { return false }
+        tally.hops += 1
+        pendingMoments.append(.jumped)
+        return true
+    }
+
     /// Puts something on the road by hand.
     mutating func place(_ stream: PissStream) { streams.append(stream) }
     mutating func place(_ vehicle: Vehicle) { vehicles.append(vehicle) }
     mutating func place(_ pile: PoopPile) { piles.append(pile) }
     mutating func place(_ coin: RoadCoin) { roadCoins.append(coin) }
     mutating func place(_ pickup: RoadPickup) { roadPickups.append(pickup) }
+    mutating func place(_ ramp: RoadRamp) { ramps.append(ramp) }
+    mutating func place(_ manhole: Manhole) { manholes.append(manhole) }
+    mutating func place(_ event: RoadEvent) { roadEvents.append(event) }
 
     // MARK: - The frame
 
     /// Moves the ride forward and reports what happened. `targetX` is where the finger steers.
     mutating func update(dt: Double, targetX: Double) -> [BikeEvent] {
-        guard !isOver, dt > 0 else { return [] }
+        guard !isOver, dt > 0 else {
+            if !moments.isEmpty { moments = [] }
+            return []
+        }
         let step = min(dt, Self.maxStep)
         let previous = distance
         let districtBefore = district.index
+        moments = pendingMoments
+        pendingMoments = []
         steer(toward: targetX, dt: step)
         distance += speed * step
         time += step
@@ -165,12 +161,9 @@ struct BikeRun: Equatable {
         pendingEvents = []
         events += tickMeters(dt: step)
         advanceObjects(dt: step)
-        events += collectCoins(after: previous)
-        events += collectPickups(after: previous)
-        events += checkPiles(after: previous)
-        events += checkVehicles(after: previous)
-        events += checkStreams(after: previous)
+        events += contacts(after: previous)
         if district.index != districtBefore { events.append(.districtEntered(district.index)) }
+        announceRoadEvents()
         spawnAhead()
         removePassedObjects()
         if lives <= 0 {
@@ -193,7 +186,11 @@ struct BikeRun: Equatable {
         skidLeft = max(0, skidLeft - dt)
         powerUps.tick(dt: dt)
         comboMeter.decay(dt: dt)
-        return boostTank.burn(dt: dt) ? [.boostEnd] : []
+        var events: [BikeEvent] = boostTank.burn(dt: dt) ? [.boostEnd] : []
+        if let landing = air.tick(dt: dt) {
+            events += land(landing)
+        }
+        return events
     }
 
     private mutating func advanceObjects(dt: Double) {
@@ -203,6 +200,16 @@ struct BikeRun: Equatable {
         vehicles = vehicles.map { $0.advanced(dt: dt, riderDistance: riderDistance, riderSpeed: riderSpeed) }
     }
 
+    /// Shows each road event's banner once, a moment before it starts.
+    private mutating func announceRoadEvents() {
+        let lead = speed * Self.eventLeadSeconds
+        let upcoming = roadEvents
+        for event in upcoming where event.id > lastAnnouncedEvent && distance + lead >= event.startZ {
+            lastAnnouncedEvent = event.id
+            moments.append(.roadEvent(event.kind))
+        }
+    }
+
     private mutating func removePassedObjects() {
         let cutoff = distance - Self.behind
         streams = streams.filter { $0.z >= cutoff }
@@ -210,6 +217,9 @@ struct BikeRun: Equatable {
         piles = piles.filter { $0.z >= cutoff }
         roadCoins = roadCoins.filter { $0.z >= cutoff }
         roadPickups = roadPickups.filter { $0.z >= cutoff }
+        ramps = ramps.filter { $0.z >= cutoff }
+        manholes = manholes.filter { $0.z >= cutoff }
+        roadEvents = roadEvents.filter { $0.endZ >= cutoff }
     }
 
     private mutating func spawnAhead() {
@@ -221,163 +231,9 @@ struct BikeRun: Equatable {
             piles += segment.piles
             roadCoins += segment.coins
             roadPickups += segment.pickups
+            ramps += segment.ramps
+            manholes += segment.manholes
+            if let event = segment.event { roadEvents.append(event) }
         }
-    }
-
-    // MARK: - Coins and pickups
-
-    private mutating func collectCoins(after previous: Double) -> [BikeEvent] {
-        let hasMagnet = powerUps.magnet > 0
-        let reach = hasMagnet ? Self.magnetReach : loadout.coinReach
-        let horizon = distance + (hasMagnet ? Self.magnetAhead : 0)
-        let bikeX = x
-        let isTaken: (RoadCoin) -> Bool = { coin in
-            coin.z > previous && coin.z <= horizon && abs(coin.x - bikeX) < reach
-        }
-        let taken = roadCoins.filter(isTaken)
-        guard !taken.isEmpty else { return [] }
-        roadCoins = roadCoins.filter { !isTaken($0) }
-        var events: [BikeEvent] = []
-        for coin in taken {
-            bank(coin)
-            events.append(coin.isGolden ? .goldenCoin : .coin)
-        }
-        return events
-    }
-
-    private mutating func bank(_ coin: RoadCoin) {
-        let doubling = powerUps.doubler > 0 ? 2.0 : 1.0
-        coinBank += Double(coin.value) * loadout.coinMultiplier * doubling
-        coinScoreTotal += coin.value * Self.coinScore * combo
-        tally.coinsPicked += 1
-        tally.goldenCoins += coin.isGolden ? 1 : 0
-        boostTank.add(loadout.boostPerCoin * (coin.isGolden ? Self.goldenBoostFactor : 1))
-    }
-
-    private mutating func collectPickups(after previous: Double) -> [BikeEvent] {
-        let end = distance
-        let bikeX = x
-        let isTaken: (RoadPickup) -> Bool = { pickup in
-            pickup.z > previous && pickup.z <= end && abs(pickup.x - bikeX) < Self.pickupReach
-        }
-        let taken = roadPickups.filter(isTaken)
-        guard !taken.isEmpty else { return [] }
-        roadPickups = roadPickups.filter { !isTaken($0) }
-        var events: [BikeEvent] = []
-        for pickup in taken {
-            apply(pickup.kind)
-            events.append(.pickup(pickup.kind))
-        }
-        return events
-    }
-
-    private mutating func apply(_ kind: PickupKind) {
-        tally.pickups += 1
-        switch kind {
-        case .magnet: powerUps.magnet = loadout.magnetSeconds
-        case .shield: powerUps.shield = loadout.shieldSeconds
-        case .coinDoubler: powerUps.doubler = Self.doublerSeconds
-        case .boostRefill: boostTank.refill()
-        case .repair: lives = min(maxLives, lives + 1)
-        }
-    }
-
-    // MARK: - Obstacles
-
-    private mutating func checkPiles(after previous: Double) -> [BikeEvent] {
-        guard !boostTank.isActive else { return [] }
-        let end = distance
-        let bikeX = x
-        let skidded = piles.contains { pile in
-            pile.z > previous && pile.z <= end && abs(pile.x - bikeX) < Self.pileReach
-        }
-        guard skidded else { return [] }
-        skidLeft = loadout.skidSeconds
-        slowdownLeft = max(slowdownLeft, loadout.skidSeconds)
-        slowdownFactor = loadout.skidSpeedFactor
-        tally.skids += 1
-        return [.skid]
-    }
-
-    private mutating func checkVehicles(after previous: Double) -> [BikeEvent] {
-        var events: [BikeEvent] = []
-        for index in vehicles.indices where !vehicles[index].wasPassed && !vehicles[index].isWrecked {
-            events += resolveVehicle(at: index, after: previous)
-        }
-        return events
-    }
-
-    private mutating func resolveVehicle(at index: Int, after previous: Double) -> [BikeEvent] {
-        let vehicle = vehicles[index]
-        let front = vehicle.z + vehicle.kind.halfLength
-        let rear = vehicle.z - vehicle.kind.halfLength
-        let sideways = abs(vehicle.x - x)
-        let touchWidth = vehicle.kind.halfWidth + Self.bikeHalfWidth
-        let isAlongside = distance >= rear && distance <= front
-        let jumpedOver = previous < rear && distance > front
-        if sideways < touchWidth, isAlongside || jumpedOver {
-            return strike(vehicleAt: index)
-        }
-        guard distance > front else { return [] }
-        vehicles[index] = vehicle.passed()
-        guard sideways >= touchWidth, sideways < touchWidth + Self.vehicleNearMissMargin else { return [] }
-        return [registerNearMiss()]
-    }
-
-    private mutating func strike(vehicleAt index: Int) -> [BikeEvent] {
-        let vehicle = vehicles[index]
-        if boostTank.isActive {
-            vehicles[index] = vehicle.wrecked()
-            bonusScore += Self.smashScore
-            tally.vehiclesSmashed += 1
-            return [.vehicleSmashed(vehicle.kind)]
-        }
-        guard invulnerable == 0 else { return [] }
-        vehicles[index] = vehicle.wrecked()
-        return takeHit()
-    }
-
-    private mutating func checkStreams(after previous: Double) -> [BikeEvent] {
-        let end = distance
-        let crossed = streams.filter { $0.isPouring && $0.z > previous && $0.z <= end }
-        var events: [BikeEvent] = []
-        for stream in crossed {
-            let sideways = abs(stream.x(atTime: time) - x)
-            if sideways >= Self.streamReach {
-                if sideways < Self.streamReach + Self.streamNearMissMargin {
-                    events.append(registerNearMiss())
-                }
-            } else if invulnerable == 0 {
-                events += takeHit()
-            }
-        }
-        return events
-    }
-
-    private mutating func registerNearMiss() -> BikeEvent {
-        comboMeter.registerNearMiss()
-        bonusScore += Self.nearMissScore * combo
-        tally.nearMisses += 1
-        tally.bestCombo = max(tally.bestCombo, combo)
-        return .nearMiss
-    }
-
-    /// A shield eats the blow; otherwise it costs a life, the combo and any gas in progress.
-    private mutating func takeHit() -> [BikeEvent] {
-        if powerUps.shield > 0 {
-            powerUps.shield = 0
-            invulnerable = max(invulnerable, Self.shieldGraceSeconds)
-            tally.shieldBlocks += 1
-            return [.shieldBlocked]
-        }
-        lives -= 1
-        tally.hits += 1
-        invulnerable = loadout.invulnerableSeconds
-        slowdownLeft = Self.hitSlowdownSeconds
-        slowdownFactor = Self.hitSlowdownFactor
-        comboMeter.reset()
-        guard boostTank.isActive else { return [.hit] }
-        boostTank.stop()
-        return [.hit, .boostEnd]
     }
 }
