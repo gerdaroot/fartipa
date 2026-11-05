@@ -34,7 +34,8 @@ enum BikeTextures {
         let edge = size.width * 0.015
         cg.fill(CGRect(x: size.width * 0.01, y: 0, width: edge, height: size.height))
         cg.fill(CGRect(x: size.width * 0.99 - edge, y: 0, width: edge, height: size.height))
-        for lane in [CGFloat(1) / 3, 2.0 / 3] {
+        let lanes: [CGFloat] = [1.0 / 3, 2.0 / 3]
+        for lane in lanes {
             for start in stride(from: size.height / 16, to: size.height, by: size.height / 4) {
                 cg.fill(CGRect(x: size.width * lane - edge / 2, y: start, width: edge, height: size.height / 8))
             }
