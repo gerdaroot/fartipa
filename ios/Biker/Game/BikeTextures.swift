@@ -1,118 +1,78 @@
 import UIKit
 
-/// Pictures for the 3D world, painted in code. The road is the same pile as the drawing mode.
+/// Pictures painted in code that the menus share with the 3D world.
+/// The world's own textures live in `World/` (surfaces, city, sky, sprites).
 enum BikeTextures {
-    private static let tileWidth = 256
-    private static let tileHeight = 256
+    private static let coinSide: CGFloat = 128
 
-    /// A road tile that repeats without a seam: the pile, then the same pile mirrored.
-    static func roadTile(seed: UInt32) -> UIImage? {
-        guard let pile = pileImage(seed: seed) else { return nil }
-        let size = CGSize(width: tileWidth * 2, height: tileHeight * 4)
-        return renderer(size).image { context in
+    /// The говнокоин, for the HUD and shop.
+    static let coinImage: UIImage = coin(golden: false)
+    /// The rare big one on the road.
+    static let goldenCoinImage: UIImage = coin(golden: true)
+
+    private static func coin(golden: Bool) -> UIImage {
+        let side = coinSide
+        return renderer(CGSize(width: side, height: side), opaque: false).image { context in
             let cg = context.cgContext
-            let half = size.height / 2
+            let rim = golden ? UIColor(red: 1, green: 0.62, blue: 0.1, alpha: 1) : UIColor(red: 0.76, green: 0.5, blue: 0.1, alpha: 1)
+            let face = golden ? UIColor(red: 1, green: 0.9, blue: 0.4, alpha: 1) : UIColor(red: 0.98, green: 0.76, blue: 0.24, alpha: 1)
+            cg.setFillColor(rim.cgColor)
+            cg.fillEllipse(in: CGRect(x: 0, y: 0, width: side, height: side))
             cg.saveGState()
-            cg.translateBy(x: 0, y: half)
-            cg.scaleBy(x: 1, y: -1)
-            cg.draw(pile, in: CGRect(x: 0, y: 0, width: size.width, height: half))
+            cg.addEllipse(in: CGRect(x: 0, y: 0, width: side, height: side))
+            cg.clip()
+            Painter.radialGlow(cg, center: CGPoint(x: side * 0.42, y: side * 0.4), radius: side * 0.62, color: face, alpha: 1)
+            cg.setStrokeColor(UIColor(red: 0.55, green: 0.34, blue: 0.05, alpha: 1).cgColor)
+            cg.setLineWidth(side * 0.055)
+            cg.strokeEllipse(in: CGRect(x: side * 0.07, y: side * 0.07, width: side * 0.86, height: side * 0.86))
+            paintPoop(cg, side: side)
             cg.restoreGState()
-            cg.draw(pile, in: CGRect(x: 0, y: half, width: size.width, height: half))
-            paintMarkings(cg, size: size)
         }
     }
 
-    private static func pileImage(seed: UInt32) -> CGImage? {
-        let field = HeightField(widthPoints: tileWidth, heightPoints: tileHeight, scale: 2, seed: seed)
-        _ = field.flush()
-        return ImageMaker.opaqueImage(field.rgba(in: field.fullRect), width: field.width, height: field.height)
-    }
-
-    /// Dashes between lanes and solid edge lines, in the colour of what falls from the sky.
-    private static func paintMarkings(_ cg: CGContext, size: CGSize) {
-        cg.setFillColor(UIColor(red: 0.96, green: 0.78, blue: 0.16, alpha: 0.85).cgColor)
-        let edge = size.width * 0.015
-        cg.fill(CGRect(x: size.width * 0.01, y: 0, width: edge, height: size.height))
-        cg.fill(CGRect(x: size.width * 0.99 - edge, y: 0, width: edge, height: size.height))
-        let lanes: [CGFloat] = [1.0 / 3, 2.0 / 3]
-        for lane in lanes {
-            for start in stride(from: size.height / 16, to: size.height, by: size.height / 4) {
-                cg.fill(CGRect(x: size.width * lane - edge / 2, y: start, width: edge, height: size.height / 8))
-            }
+    /// A three-tier pile with a curled tip, centred in a square of `side`.
+    static func paintPoop(_ cg: CGContext, side: CGFloat) {
+        let brown = UIColor(red: 0.36, green: 0.2, blue: 0.07, alpha: 1)
+        let shine = UIColor(red: 0.62, green: 0.4, blue: 0.18, alpha: 1)
+        let tiers: [CGRect] = [
+            CGRect(x: 0.23, y: 0.56, width: 0.54, height: 0.22),
+            CGRect(x: 0.31, y: 0.41, width: 0.38, height: 0.2),
+            CGRect(x: 0.39, y: 0.29, width: 0.22, height: 0.17),
+        ]
+        cg.setFillColor(brown.cgColor)
+        for tier in tiers {
+            cg.fillEllipse(in: CGRect(x: tier.minX * side, y: tier.minY * side, width: tier.width * side, height: tier.height * side))
+        }
+        cg.move(to: CGPoint(x: side * 0.44, y: side * 0.33))
+        cg.addQuadCurve(to: CGPoint(x: side * 0.56, y: side * 0.16), control: CGPoint(x: side * 0.6, y: side * 0.28))
+        cg.addLine(to: CGPoint(x: side * 0.58, y: side * 0.33))
+        cg.fillPath()
+        cg.setFillColor(shine.cgColor)
+        for tier in tiers {
+            cg.fillEllipse(in: CGRect(
+                x: (tier.minX + tier.width * 0.2) * side, y: (tier.minY + tier.height * 0.15) * side,
+                width: tier.width * 0.3 * side, height: tier.height * 0.3 * side
+            ))
         }
     }
 
-    static let coinImage = coin()
-
-    private static func coin() -> UIImage {
-        renderer(CGSize(width: 128, height: 128)).image { context in
-            let cg = context.cgContext
-            cg.setFillColor(UIColor(red: 0.96, green: 0.72, blue: 0.2, alpha: 1).cgColor)
-            cg.fill(CGRect(x: 0, y: 0, width: 128, height: 128))
-            cg.setStrokeColor(UIColor(red: 0.58, green: 0.38, blue: 0.06, alpha: 1).cgColor)
-            cg.setLineWidth(7)
-            cg.strokeEllipse(in: CGRect(x: 8, y: 8, width: 112, height: 112))
-            cg.setFillColor(UIColor(red: 0.36, green: 0.2, blue: 0.07, alpha: 1).cgColor)
-            cg.fillEllipse(in: CGRect(x: 30, y: 72, width: 68, height: 28))
-            cg.fillEllipse(in: CGRect(x: 40, y: 52, width: 48, height: 26))
-            cg.fillEllipse(in: CGRect(x: 50, y: 36, width: 28, height: 22))
-            cg.move(to: CGPoint(x: 56, y: 42))
-            cg.addLine(to: CGPoint(x: 66, y: 22))
-            cg.addLine(to: CGPoint(x: 73, y: 42))
-            cg.fillPath()
-        }
-    }
-
-    /// Shown on the roadside until the player has drawn something of their own.
+    /// Shown on a roadside billboard until the player gives a picture of their own.
     static func defaultPoster() -> UIImage {
         renderer(CGSize(width: 512, height: 512)).image { context in
             let cg = context.cgContext
-            cg.setFillColor(UIColor(red: 0.22, green: 0.12, blue: 0.05, alpha: 1).cgColor)
+            cg.setFillColor(UIColor(red: 0.14, green: 0.07, blue: 0.03, alpha: 1).cgColor)
             cg.fill(CGRect(x: 0, y: 0, width: 512, height: 512))
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment = .center
-            let text = NSAttributedString(string: "РИСУЙ\nНА ГОВНЕ\nИ ТВОЯ КАРТИНА\nБУДЕТ ТУТ", attributes: [
-                .font: UIFont.systemFont(ofSize: 60, weight: .black),
-                .foregroundColor: UIColor(red: 0.96, green: 0.74, blue: 0.28, alpha: 1),
-                .paragraphStyle: paragraph,
-            ])
-            text.draw(in: CGRect(x: 10, y: 110, width: 492, height: 340))
-        }
-    }
-
-    /// A dark tower with scattered lit windows.
-    static func building(seed: Int) -> UIImage {
-        var random = SplitMix(seed: UInt64(seed) &+ 11)
-        return renderer(CGSize(width: 128, height: 256)).image { context in
-            let cg = context.cgContext
-            cg.setFillColor(UIColor(red: 0.1, green: 0.07, blue: 0.06, alpha: 1).cgColor)
-            cg.fill(CGRect(x: 0, y: 0, width: 128, height: 256))
-            for row in 0..<12 {
-                for column in 0..<6 where random.unit() < 0.35 {
-                    let warmth = 0.5 + random.unit() * 0.45
-                    cg.setFillColor(UIColor(red: 0.95, green: CGFloat(warmth) * 0.75, blue: 0.25, alpha: 1).cgColor)
-                    cg.fill(CGRect(x: 8 + column * 20, y: 8 + row * 20, width: 12, height: 13))
-                }
-            }
-        }
-    }
-
-    /// A dusk sky from the horizon glow up to dark.
-    static func sky() -> UIImage {
-        renderer(CGSize(width: 16, height: 256)).image { context in
-            let colors = [
-                UIColor(red: 0.07, green: 0.05, blue: 0.12, alpha: 1).cgColor,
-                UIColor(red: 0.24, green: 0.11, blue: 0.16, alpha: 1).cgColor,
-                UIColor(red: 0.62, green: 0.31, blue: 0.13, alpha: 1).cgColor,
-            ]
-            guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: [0, 0.72, 1]) else { return }
-            context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: 256), options: [])
+            paintPoop(cg, side: 512)
+            Painter.text(
+                "ПИЗДЕЦ\nКРУТОЙ БАЙКЕР", in: CGRect(x: 16, y: 400, width: 480, height: 100),
+                color: UIColor(red: 1, green: 0.8, blue: 0.3, alpha: 1), glow: nil, weight: .black
+            )
         }
     }
 
     /// The player's picture, cut to a square that suits a billboard.
     static func posterFromDrawing(_ image: UIImage) -> UIImage {
-        let side = min(image.size.width, image.size.height)
+        let side = max(1, min(image.size.width, image.size.height))
         let origin = CGPoint(x: (side - image.size.width) / 2, y: (side - image.size.height) / 2)
         let scale = 512 / side
         return renderer(CGSize(width: 512, height: 512)).image { _ in
@@ -123,10 +83,11 @@ enum BikeTextures {
         }
     }
 
-    private static func renderer(_ size: CGSize) -> UIGraphicsImageRenderer {
+    /// A 1x renderer. `opaque` false keeps the alpha channel for sprites and decals.
+    static func renderer(_ size: CGSize, opaque: Bool = true) -> UIGraphicsImageRenderer {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        format.opaque = true
+        format.opaque = opaque
         return UIGraphicsImageRenderer(size: size, format: format)
     }
 }
