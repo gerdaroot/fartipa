@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: build
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-latest
@@ -26,11 +30,9 @@ jobs:
       - run: xcodegen generate
       - name: Build Krutoy Biker without signing
         run: bash scripts/xcbuild.sh KrutoyBiker Release -sdk iphoneos
-      - name: Build Poop Draw without signing
-        run: bash scripts/xcbuild.sh PoopDraw Release -sdk iphoneos
       - name: Package IPAs
         run: |
-          for app in KrutoyBiker PoopDraw; do
+          for app in KrutoyBiker; do
             rm -rf Payload
             mkdir Payload
             cp -R "build/Build/Products/Release-iphoneos/$app.app" Payload/
@@ -42,10 +44,6 @@ jobs:
         with:
           name: KrutoyBiker-ipa
           path: KrutoyBiker.ipa
-      - uses: actions/upload-artifact@v4
-        with:
-          name: PoopDraw-ipa
-          path: PoopDraw.ipa
       - name: Publish errors to their own branch
         if: failure()
         env:
@@ -64,31 +62,3 @@ jobs:
           git commit -q -m "chore: errors for ${GITHUB_SHA}"
           git push -f "$PUSH_URL" build-errors
 
-  screenshots:
-    runs-on: macos-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - run: brew install xcodegen
-      - run: xcodegen generate
-      - name: Build for the simulator
-        run: bash scripts/xcbuild.sh KrutoyBiker Debug -destination "generic/platform=iOS Simulator"
-      - name: Take screenshots
-        run: |
-          bash scripts/simulator-screenshots.sh \
-            build/Build/Products/Debug-iphonesimulator/KrutoyBiker.app \
-            "$RUNNER_TEMP/screens" \
-            com.krutoybiker.app \
-            hub ride garage upgrades over
-      - name: Publish screenshots to their own branch
-        env:
-          PUSH_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}
-        run: |
-          cd "$RUNNER_TEMP/screens"
-          git init -q -b screenshots
-          git config user.name "github-actions"
-          git config user.email "github-actions@users.noreply.github.com"
-          git add -A
-          git commit -q -m "chore: screenshots for ${GITHUB_SHA}"
-          git push -f "$PUSH_URL" screenshots
