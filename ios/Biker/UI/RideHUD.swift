@@ -1,44 +1,20 @@
 import SwiftUI
 
 /// The riding screen: drag anywhere to steer, HUD around the edges.
+/// This outer view observes nothing that changes during a ride, so the gesture layer and the
+/// geometry reader are never rebuilt; only `HUDLayer` and `HitFlash` follow the ride feed.
 struct RideHUD: View {
-    @ObservedObject var game: BikeGame
-    @ObservedObject var feed: RideFeed
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var flash = 0.0
-
-    private static let flashPeak = 0.6
-    private static let flashPeakReduced = 0.3
-    private static let flashSeconds = 0.45
-
-    private var hud: HUDSnapshot { feed.hud }
+    let game: BikeGame
+    let feed: RideFeed
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
                 steeringLayer(width: proxy.size.width)
-                Palette.piss
-                    .opacity(flash)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                VStack(spacing: 8) {
-                    topBar
-                    ScoreHeader(score: hud.score, district: hud.districtName, combo: hud.combo, comboFraction: hud.comboFraction)
-                    PowerUpRow(hud: hud)
-                    if let lane = hud.warningLane { StreamWarning(lane: lane) }
-                    Spacer(minLength: 0)
-                    PopupStack(popups: feed.popups)
-                    Spacer(minLength: 0)
-                    if hud.showsHint { hint }
-                    bottomBar
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 4)
-                .padding(.bottom, 6)
+                HitFlash(feed: feed)
+                HUDLayer(game: game, feed: feed)
             }
         }
-        .onChange(of: feed.hitCount) { _ in hitFlash() }
     }
 
     private func steeringLayer(width: CGFloat) -> some View {
@@ -52,6 +28,56 @@ struct RideHUD: View {
                     .onEnded { _ in game.endSteer() }
             )
             .accessibilityHidden(true)
+    }
+}
+
+/// The yellow flash when the rider gets hit.
+private struct HitFlash: View {
+    @ObservedObject var feed: RideFeed
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var flash = 0.0
+
+    private static let flashPeak = 0.6
+    private static let flashPeakReduced = 0.3
+    private static let flashSeconds = 0.45
+
+    var body: some View {
+        Palette.piss
+            .opacity(flash)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: feed.hitCount) { _ in hitFlash() }
+    }
+
+    private func hitFlash() {
+        flash = reduceMotion ? Self.flashPeakReduced : Self.flashPeak
+        withAnimation(.easeOut(duration: Self.flashSeconds)) { flash = 0 }
+    }
+}
+
+/// Everything drawn from the ride feed. The feed publishes the fast numbers ~15 times a second.
+private struct HUDLayer: View {
+    let game: BikeGame
+    @ObservedObject var feed: RideFeed
+
+    private var hud: HUDSnapshot { feed.hud }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            topBar
+            ScoreHeader(score: hud.score, district: hud.districtName, combo: hud.combo, comboFraction: hud.comboFraction)
+            PowerUpRow(hud: hud)
+            if let lane = hud.warningLane { StreamWarning(lane: lane) }
+            Spacer(minLength: 0)
+            PopupStack(popups: feed.popups)
+            Spacer(minLength: 0)
+            if hud.showsHint { hint }
+            bottomBar
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+        .padding(.bottom, 6)
     }
 
     private var topBar: some View {
@@ -82,11 +108,6 @@ struct RideHUD: View {
                 fraction: hud.boostFraction, canBoost: hud.canBoost, isBoosting: hud.isBoosting, action: { game.boost() }
             )
         }
-    }
-
-    private func hitFlash() {
-        flash = reduceMotion ? Self.flashPeakReduced : Self.flashPeak
-        withAnimation(.easeOut(duration: Self.flashSeconds)) { flash = 0 }
     }
 }
 
@@ -128,7 +149,6 @@ private struct ScoreHeader: View {
                 .font(GameFont.title(40).monospacedDigit())
                 .foregroundStyle(Palette.cream)
                 .outlined(width: 2.5)
-                .hudShadow()
             HStack(spacing: 8) {
                 Text(district.uppercased())
                     .font(GameFont.label(12))

@@ -16,33 +16,107 @@ enum BurstKind {
     case bigSplash
 }
 
-/// A ring of emitter nodes. Each burst replaces whatever the oldest node was showing,
-/// so nothing piles up however many coins are taken.
+/// A ring of emitter nodes fed from particle systems built once at load. Each burst replaces whatever
+/// the oldest node was showing, so nothing piles up however many coins are taken, and no particle
+/// system, image or property controller is created during a ride.
 @MainActor
 final class BurstPool {
     private static let size = 14
     private static let emitSeconds: CGFloat = 0.06
+    /// Copies of each recipe, so back-to-back bursts of one kind do not share a system.
+    private static let copies = 2
+
+    private final class Prepared {
+        let systems: [SCNParticleSystem]
+        let rates: [CGFloat]
+        /// The ring node these systems were last shown on.
+        weak var host: SCNNode?
+
+        init(systems: [SCNParticleSystem]) {
+            self.systems = systems
+            rates = systems.map { $0.birthRate }
+        }
+    }
 
     private var nodes: [SCNNode] = []
     private var next = 0
+    private var prepared: [String: [Prepared]] = [:]
+    private var turn: [String: Int] = [:]
     var budget: CGFloat = 1
 
     init(parent: SCNNode) {
         for _ in 0..<Self.size {
             let node = SCNNode()
+            node.castsShadow = false
             parent.addChildNode(node)
             nodes.append(node)
         }
+        for kind in Self.everyKind { prebuild(kind) }
+    }
+
+    /// Every burst the game can fire, one per distinct look. Pickup colours come from the catalog of pickups.
+    static var everyKind: [BurstKind] {
+        var kinds: [BurstKind] = [
+            .coin, .goldenCoin, .hitSplash, .skid, .nearMiss(side: -1), .nearMiss(side: 1),
+            .boostFlash, .shieldBreak, .debris, .bigSplash,
+        ]
+        for kind in PickupKind.allCases { kinds.append(.pickup(PickupIcons.color(kind))) }
+        return kinds
+    }
+
+    private func prebuild(_ kind: BurstKind) {
+        let key = Self.key(kind)
+        guard prepared[key] == nil else { return }
+        var made: [Prepared] = []
+        for _ in 0..<Self.copies {
+            let systems = Self.systems(for: kind)
+            made.append(Prepared(systems: systems))
+        }
+        prepared[key] = made
     }
 
     func fire(_ kind: BurstKind, at position: SCNVector3) {
+        let key = Self.key(kind)
+        if prepared[key] == nil { prebuild(kind) }
+        guard let options = prepared[key], !options.isEmpty else { return }
+        let index = (turn[key] ?? 0) % options.count
+        turn[key] = index + 1
+        let chosen = options[index]
         let node = nodes[next]
         next = (next + 1) % nodes.count
+        if let host = chosen.host {
+            for system in chosen.systems { host.removeParticleSystem(system) }
+        }
         node.removeAllParticleSystems()
         node.position = position
-        for system in Self.systems(for: kind) {
-            system.birthRate *= budget
+        for (offset, system) in chosen.systems.enumerated() {
+            system.birthRate = chosen.rates[offset] * budget
+            system.reset()
             node.addParticleSystem(system)
+        }
+        chosen.host = node
+    }
+
+    /// Fires every copy of every recipe at `position`, so their particle pipelines compile while hidden
+    /// behind the loading screen.
+    func warmUp(at position: SCNVector3) {
+        for kind in Self.everyKind {
+            for _ in 0..<Self.copies { fire(kind, at: position) }
+        }
+    }
+
+    private static func key(_ kind: BurstKind) -> String {
+        switch kind {
+        case .coin: return "coin"
+        case .goldenCoin: return "golden"
+        case .hitSplash: return "hit"
+        case .skid: return "skid"
+        case .nearMiss(let side): return side < 0 ? "missL" : "missR"
+        case .pickup(let color): return String(format: "pickup-%.3f-%.3f-%.3f", color.r, color.g, color.b)
+        case .boostFlash: return "boost"
+        case .shieldBreak: return "shield"
+        case .debris: return "debris"
+        case .bigSplash: return "bigSplash"
         }
     }
 

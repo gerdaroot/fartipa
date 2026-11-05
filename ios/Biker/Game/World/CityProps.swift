@@ -127,7 +127,7 @@ enum CityProps {
         node.addChildNode(kit.library.flatten(frame))
         var panels: [SCNNode] = []
         for (index, x) in [-2.6, 2.6].enumerated() {
-            let material = kit.library.shared("gantry-panel-\(index)") { WorldMaterials.screen(UIImage(), boost: 0.35) }
+            let material = kit.library.shared("gantry-panel-\(index)") { WorldMaterials.screen(BikeTextures.solid(UIColor(red: 0.02, green: 0.36, blue: 0.2, alpha: 1)), boost: 0.35) }
             let panel = Shapes.panel(4.6, 1.85, material, at: Shapes.v(x, postHeight - 0.95, 0.3))
             node.addChildNode(panel)
             panels.append(panel)

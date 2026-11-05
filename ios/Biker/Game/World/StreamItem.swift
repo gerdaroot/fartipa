@@ -1,29 +1,45 @@
 import SceneKit
 import UIKit
 
-/// One piss stream: first a pulsing target and a growing shadow on the road, then a glowing column
-/// that falls from the sky and lands exactly when the stream starts to hurt, with drips, a splash
-/// and a spreading puddle.
+/// One piss stream, pissed onto the road by a giant butt in a cloud off to the side.
+///
+/// While the warning climbs, a pulsing target and a growing shadow mark the road, the cloud gathers,
+/// and in the last part of the warning the stream's front travels down its parabola so it lands
+/// exactly when the stream starts to hurt. While it pours: a rippling translucent arc that thins and
+/// breaks into drops, loose drops beside it, a splash crown with spray and hopping drops, and a
+/// spreading puddle with ripples. If it ever stops, the tail falls after the front and the puddle
+/// fades. Every node and particle system is made once in `init`; `update` only changes transforms,
+/// opacity, visibility and birth rates.
 @MainActor
 final class StreamItem: PooledItem {
-    static let columnHeight = 60.0
-    private static let warningSteps = 8
-    private static let fallStart = 0.55
-    private static let puddleSeconds = 0.9
-    private static let splashRate: CGFloat = 140
-    private static let dripRate: CGFloat = 40
+    static let columnHeight = PissArc.height
+    /// Share of the warning the stream spends falling, within these limits in seconds.
+    private static let fallShare = 0.55
+    private static let shortestFall = 0.45
+    private static let longestFall = 1.0
+    private static let puddleGrowSeconds = 1.1
+    private static let puddleLingerSeconds = 1.6
+    private static let rippleSeconds = 0.85
+    private static let sideThreshold = 0.25
+    /// The cloud fades in over this share of the warning.
+    private static let cloudFadeShare = 0.35
 
     let root = SCNNode()
     private let marker: SCNNode
     private let shadow: SCNNode
-    private let pivot = SCNNode()
-    private let column: SCNNode
     private let puddle: SCNNode
-    private let glow: SCNNode
-    private let splash = WorldParticles.splash()
-    private let drips = WorldParticles.drips()
+    private let ripples: [SCNNode]
+    private let crown: SCNNode
+    private let body: PissBody
+    private let spray = PissParticles.spray()
+    private let hops = PissParticles.hops()
     private let warningMaterials: [SCNMaterial]
+    private var markerStep = -1
     private var pourAge = 0.0
+    private var drainAge = 0.0
+    private var hasPoured = false
+    private var isAimed = false
+    private var rippleClock = 0.0
     var budget: CGFloat = 1
 
     init(kit: StreamKit) {
@@ -31,122 +47,131 @@ final class StreamItem: PooledItem {
         marker = Shapes.decal(2.8, 2.8, kit.warning[0], at: Shapes.v(0, 0.05, 0))
         shadow = Shapes.decal(3.2, 3.2, kit.shadow, at: Shapes.v(0, 0.04, 0))
         puddle = Shapes.decal(3.4, 3.4, kit.puddle, at: Shapes.v(0, 0.035, 0))
-        glow = Shapes.decal(6, 6, kit.glow, at: Shapes.v(0, 0.06, 0))
-        column = SCNNode()
-        let outer = SCNCylinder(radius: 0.34, height: CGFloat(Self.columnHeight))
-        outer.radialSegmentCount = 14
-        outer.firstMaterial = kit.column
-        column.addChildNode(SCNNode(geometry: outer))
-        let inner = SCNCylinder(radius: 0.13, height: CGFloat(Self.columnHeight))
-        inner.radialSegmentCount = 8
-        inner.firstMaterial = kit.core
-        column.addChildNode(SCNNode(geometry: inner))
-        column.position = Shapes.v(0, -Self.columnHeight / 2, 0)
-        pivot.position = Shapes.v(0, Self.columnHeight, 0)
-        pivot.addChildNode(column)
-        for node in [shadow, puddle, marker, glow, pivot] { root.addChildNode(node) }
+        let rippleA = Shapes.decal(1.6, 1.6, kit.ripple, at: Shapes.v(0, 0.045, 0))
+        let rippleB = Shapes.decal(1.6, 1.6, kit.ripple, at: Shapes.v(0, 0.046, 0))
+        ripples = [rippleA, rippleB]
+        crown = SCNNode(geometry: kit.crownMesh)
+        crown.position = Shapes.v(0, 0.02, 0)
+        body = PissBody(kit: kit)
+        for node in [shadow, puddle, rippleA, rippleB, marker, crown, body.lean] { root.addChildNode(node) }
         let splashNode = SCNNode()
-        splashNode.position = Shapes.v(0, 0.1, 0)
-        splashNode.addParticleSystem(splash)
+        splashNode.position = Shapes.v(0, 0.08, 0)
+        splashNode.addParticleSystem(spray)
+        splashNode.addParticleSystem(hops)
         root.addChildNode(splashNode)
-        let dripNode = SCNNode()
-        dripNode.position = Shapes.v(0, 6, 0)
-        dripNode.addParticleSystem(drips)
-        root.addChildNode(dripNode)
         root.disableShadows()
+        recycle()
     }
 
     func recycle() {
         pourAge = 0
-        splash.birthRate = 0
-        drips.birthRate = 0
+        drainAge = 0
+        rippleClock = 0
+        hasPoured = false
+        isAimed = false
+        markerStep = -1
+        for system in [spray, hops] {
+            system.birthRate = 0
+            system.reset()
+        }
         puddle.isHidden = true
-        glow.isHidden = true
-        pivot.isHidden = true
+        crown.isHidden = true
+        for ripple in ripples { ripple.isHidden = true }
+        body.reset()
     }
 
-    /// `clock` drives the pulse and wobble; `dt` is 0 while paused.
+    /// `clock` drives the pulse and splash; `dt` is 0 while paused. The root is already placed.
     func update(_ stream: PissStream, clock: Double, dt: Double) {
-        let warning = stream.isPouring ? 1 : max(0, min(1, (stream.isVisible ? stream.warning : 0)))
-        let index = min(Self.warningSteps - 1, Int(warning * Double(Self.warningSteps)))
-        marker.geometry?.firstMaterial = warningMaterials[index]
+        if !isAimed {
+            body.aim(side: StreamItem.side(of: stream), phase: stream.phase)
+            isAimed = true
+        }
+        let warning = stream.isPouring ? 1 : max(0, min(1, stream.isVisible ? stream.warning : 0))
+        updateMarker(warning: warning, pouring: stream.isPouring, clock: clock)
+        body.follow(landingX: Double(root.position.x), dt: dt)
+        if stream.isPouring {
+            hasPoured = true
+            drainAge = 0
+            pourAge += dt
+        } else if hasPoured {
+            drainAge += dt
+        }
+        let fall = StreamItem.fallSeconds(stream)
+        let front = hasPoured ? 1 : StreamItem.front(warning: warning, fall: fall, warningSeconds: stream.warningSeconds)
+        let draining = hasPoured && !stream.isPouring
+        let tail = draining ? min(1, drainAge / fall) : 0
+        let live = dt > 0
+        let cloud = draining ? 1 - tail : warning / StreamItem.cloudFadeShare
+        body.show(front: front, tail: tail, cloudOpacity: cloud, dripRate: live ? PissParticles.dripRate * budget : 0)
+        updateSplash(pouring: stream.isPouring, live: live, clock: clock, phase: stream.phase)
+        updatePuddle(pouring: stream.isPouring, draining: draining, dt: dt)
+    }
+
+    /// Streams in the right half come from the right, in the left half from the left.
+    private static func side(of stream: PissStream) -> Double {
+        if stream.baseX > sideThreshold { return 1 }
+        if stream.baseX < -sideThreshold { return -1 }
+        return stream.id % 2 == 0 ? 1 : -1
+    }
+
+    /// How long the front takes from the cloud to the road for this stream.
+    private static func fallSeconds(_ stream: PissStream) -> Double {
+        max(shortestFall, min(longestFall, stream.warningSeconds * fallShare))
+    }
+
+    /// How far down the arc the arriving front is: it leaves the cloud `fall` seconds before the
+    /// warning ends and, moving at constant sideways speed, reaches the road exactly at warning 1.
+    private static func front(warning: Double, fall: Double, warningSeconds: Double) -> Double {
+        let seconds = max(0.01, warningSeconds)
+        let secondsLeft = (1 - warning) * seconds
+        return max(0, min(1, 1 - secondsLeft / fall))
+    }
+
+    private func updateMarker(warning: Double, pouring: Bool, clock: Double) {
+        let index = min(StreamKit.warningSteps - 1, Int(warning * Double(StreamKit.warningSteps)))
+        if index != markerStep, index < warningMaterials.count {
+            marker.geometry?.firstMaterial = warningMaterials[index]
+            markerStep = index
+        }
         let pulse = 0.5 + 0.5 * sin(clock * (8 + warning * 14))
         let markerScale = Float(0.45 + 0.75 * warning)
         marker.scale = SCNVector3(markerScale, markerScale, markerScale)
-        marker.opacity = stream.isPouring ? 0.25 : CGFloat(0.45 + 0.55 * pulse)
+        marker.opacity = pouring ? 0.2 : CGFloat(0.45 + 0.55 * pulse)
         let shadowScale = Float(0.25 + warning)
         shadow.scale = SCNVector3(shadowScale, shadowScale, shadowScale)
         shadow.opacity = CGFloat(0.2 + 0.6 * warning)
-        let fall = max(0, min(1, (warning - Self.fallStart) / (1 - Self.fallStart)))
-        pivot.isHidden = fall <= 0
-        let wobble = Float(1 + 0.12 * sin(clock * 17 + stream.phase))
-        pivot.scale = SCNVector3(wobble, Float(max(0.001, fall * fall)), wobble)
-        updatePour(stream.isPouring, dt: dt)
     }
 
-    private func updatePour(_ pouring: Bool, dt: Double) {
-        if pouring { pourAge += dt }
-        let grown = Float(min(1, pourAge / Self.puddleSeconds))
-        puddle.isHidden = !pouring
-        glow.isHidden = !pouring
-        let size = 0.3 + 0.7 * grown
-        puddle.scale = SCNVector3(size, size, size)
-        glow.scale = SCNVector3(size, size, size)
-        let active = pouring && dt > 0
-        splash.birthRate = active ? Self.splashRate * budget : 0
-        drips.birthRate = active ? Self.dripRate * budget : 0
-    }
-}
-
-/// Materials shared by every stream.
-@MainActor
-final class StreamKit {
-    let warning: [SCNMaterial]
-    let shadow: SCNMaterial
-    let puddle: SCNMaterial
-    let glow: SCNMaterial
-    let column: SCNMaterial
-    let core: SCNMaterial
-
-    init(library: MaterialLibrary) {
-        var steps: [SCNMaterial] = []
-        let yellow = ColorValue(1, 0.9, 0.15)
-        let red = ColorValue(1, 0.08, 0.05)
-        for index in 0..<8 {
-            let color = yellow.mixed(with: red, Double(index) / 7)
-            steps.append(library.shared("warning-\(index)", bend: false) {
-                let material = WorldMaterials.decal(SpriteTextures.warningRing, additive: true)
-                material.multiply.contents = color.ui
-                return material
-            })
+    private func updateSplash(pouring: Bool, live: Bool, clock: Double, phase: Double) {
+        crown.isHidden = !pouring
+        if pouring {
+            let rise = Float(0.85 + 0.3 * sin(clock * 23 + phase) + 0.12 * sin(clock * 37))
+            let spread = Float(1 + 0.08 * sin(clock * 17 + phase))
+            crown.scale = SCNVector3(spread, rise, spread)
+            crown.eulerAngles = SCNVector3(0, Float((clock * 1.3).truncatingRemainder(dividingBy: 2 * Double.pi)), 0)
         }
-        warning = steps
-        shadow = library.shared("streamShadow", bend: false) { WorldMaterials.decal(SpriteTextures.shadowDisc, additive: false) }
-        puddle = library.shared("puddle", bend: false) { WorldMaterials.decal(SpriteTextures.puddle, additive: false, lit: true) }
-        glow = library.shared("splashGlow", bend: false) {
-            let material = WorldMaterials.decal(SpriteTextures.lightPool, additive: true)
-            material.multiply.contents = UIColor(red: 1, green: 0.8, blue: 0.1, alpha: 1)
-            return material
-        }
-        column = library.shared("streamColumn", bend: false) {
-            let material = WorldMaterials.decal(SpriteTextures.streamFlow, additive: false)
-            material.emission.contents = SpriteTextures.streamFlow
-            material.emission.intensity = 0.9
-            material.cullMode = .back
-            return material
-        }
-        core = library.shared("streamCore", bend: false) {
-            WorldMaterials.glow(UIColor(red: 1, green: 0.88, blue: 0.3, alpha: 1), boost: 1.4)
-        }
-        WorldMaterials.repeating(column.diffuse, scaleX: 2, scaleY: 8)
-        WorldMaterials.repeating(column.emission, scaleX: 2, scaleY: 8)
+        let active = pouring && live
+        spray.birthRate = active ? PissParticles.sprayRate * budget : 0
+        hops.birthRate = active ? PissParticles.hopRate * budget : 0
     }
 
-    /// Runs the streaks down every column.
-    func flow(clock: Double) {
-        let shift = Float((clock * 2.2).truncatingRemainder(dividingBy: 1))
-        let transform = SCNMatrix4Mult(SCNMatrix4MakeScale(2, 8, 1), SCNMatrix4MakeTranslation(0, shift, 0))
-        column.diffuse.contentsTransform = transform
-        column.emission.contentsTransform = transform
+    private func updatePuddle(pouring: Bool, draining: Bool, dt: Double) {
+        puddle.isHidden = !(pouring || draining)
+        if pouring {
+            let size = Float(0.3 + 0.75 * min(1, pourAge / StreamItem.puddleGrowSeconds))
+            puddle.scale = SCNVector3(size, size, size)
+            puddle.opacity = 1
+        } else if draining {
+            puddle.opacity = CGFloat(max(0, 1 - drainAge / StreamItem.puddleLingerSeconds))
+        }
+        rippleClock += pouring ? dt : 0
+        for (index, ripple) in ripples.enumerated() {
+            ripple.isHidden = !pouring
+            guard pouring else { continue }
+            let age = (rippleClock / StreamItem.rippleSeconds + Double(index) * 0.5).truncatingRemainder(dividingBy: 1)
+            let size = Float(0.35 + 2.1 * age)
+            ripple.scale = SCNVector3(size, size, size)
+            ripple.opacity = CGFloat(0.7 * (1 - age))
+        }
     }
 }

@@ -6,6 +6,8 @@ import UIKit
 enum ObjectModels {
     static let coinHeight = 1.0
     static let pickupHeight = 1.35
+    /// One disc geometry per coin kind, shared by every pooled coin (one vertex buffer, same materials).
+    private static var coinDiscs: [Bool: SCNGeometry] = [:]
 
     static func pile(library: MaterialLibrary, seed: UInt64) -> SimpleItem {
         var random = SplitMix(seed: seed)
@@ -61,11 +63,20 @@ enum ObjectModels {
             material.diffuse.contents = picture
             material.emission.contents = picture
             material.emission.intensity = golden ? 1 : 0.45
+            WorldMaterials.mipmapped(material.diffuse)
+            WorldMaterials.mipmapped(material.emission)
             return material
         }
-        let disc = SCNCylinder(radius: golden ? 0.78 : 0.55, height: golden ? 0.14 : 0.1)
-        disc.radialSegmentCount = 24
-        disc.materials = [edge, face, face]
+        let disc: SCNGeometry
+        if let cached = coinDiscs[golden] {
+            disc = cached
+        } else {
+            let made = SCNCylinder(radius: golden ? 0.78 : 0.55, height: golden ? 0.14 : 0.1)
+            made.radialSegmentCount = 20
+            made.materials = [edge, face, face]
+            coinDiscs[golden] = made
+            disc = made
+        }
         let discNode = SCNNode(geometry: disc)
         discNode.eulerAngles.x = .pi / 2
         let spinner = SCNNode()

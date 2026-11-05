@@ -83,6 +83,15 @@ enum BikeTextures {
         }
     }
 
+    /// A tiny single-colour picture: a stand-in that keeps a material on its textured shader
+    /// until the real picture arrives, so the swap is a texture upload, not a shader compile.
+    static func solid(_ color: UIColor, side: CGFloat = 4) -> UIImage {
+        renderer(CGSize(width: side, height: side)).image { context in
+            context.cgContext.setFillColor(color.cgColor)
+            context.cgContext.fill(CGRect(x: 0, y: 0, width: side, height: side))
+        }
+    }
+
     /// A 1x renderer. `opaque` false keeps the alpha channel for sprites and decals.
     static func renderer(_ size: CGSize, opaque: Bool = true) -> UIGraphicsImageRenderer {
         let format = UIGraphicsImageRendererFormat()

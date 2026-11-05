@@ -7,7 +7,7 @@ struct HubScreen: View {
     var body: some View {
         VStack(spacing: 12) {
             topBar
-            HubTitle()
+            HubTitle(onSecret: { game.togglePerfOverlay() })
                 .padding(.top, 8)
             if game.profile.bestScore > 0 { record }
             Spacer(minLength: 8)
@@ -86,11 +86,34 @@ struct HubScreen: View {
 }
 
 /// «ПИЗДЕЦ КРУТОЙ БАЙКЕР 3Д» as a stacked sticker logo.
+/// The logo is drawn once into a single texture (`drawingGroup`), so its outlines, gradients and
+/// blurred glows are not re-rendered while it pulses; the pulse only scales the finished picture.
 private struct HubTitle: View {
+    let onSecret: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
+    /// Room for the glows inside the texture, which clips at its edges.
+    private static let glowRoom: CGFloat = 20
+    private static let secretPressSeconds = 1.5
+
     var body: some View {
+        logo
+            .padding(Self.glowRoom)
+            .drawingGroup()
+            .padding(-Self.glowRoom)
+            .scaleEffect(pulse ? 1.03 : 1)
+            .accessibilityElement()
+            .accessibilityLabel("Пиздец крутой байкер 3Д")
+            .accessibilityAddTraits(.isHeader)
+            .onLongPressGesture(minimumDuration: Self.secretPressSeconds, perform: onSecret)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
+            }
+    }
+
+    private var logo: some View {
         VStack(spacing: -6) {
             Text("ПИЗДЕЦ КРУТОЙ")
                 .font(GameFont.title(28))
@@ -107,15 +130,7 @@ private struct HubTitle: View {
                 .outlined(width: 4)
                 .shadow(color: Palette.redTop.opacity(0.6), radius: 14)
                 .rotationEffect(.degrees(4))
-                .scaleEffect(pulse ? 1.06 : 1)
         }
         .shadow(color: .black.opacity(0.7), radius: 8, x: 0, y: 4)
-        .accessibilityElement()
-        .accessibilityLabel("Пиздец крутой байкер 3Д")
-        .accessibilityAddTraits(.isHeader)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
-        }
     }
 }

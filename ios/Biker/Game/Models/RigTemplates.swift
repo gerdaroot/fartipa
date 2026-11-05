@@ -9,9 +9,20 @@ enum RigTemplates {
     private static var chassisCache: [String: SCNNode] = [:]
     private static var wheelCache: [String: SCNNode] = [:]
     private static var riderCache: [String: SCNNode] = [:]
-    private static let cacheLimit = 40
+    private static let cacheLimit = 96
     /// Rear wheels of the tractor are a pair, this far from the centre line.
     static let tractorTwinOffset: Float = 0.32
+
+    /// Drops one entry when a cache is full instead of throwing away every built template.
+    private static func evict(_ cache: inout [String: SCNNode]) {
+        guard cache.count >= cacheLimit, let victim = cache.keys.first else { return }
+        cache.removeValue(forKey: victim)
+    }
+
+    /// Every cached template, so loading can upload their geometry and compile their materials.
+    static var allTemplates: [SCNNode] {
+        Array(chassisCache.values) + Array(wheelCache.values) + Array(riderCache.values)
+    }
 
     private static func colorKey(_ colors: [RGB]) -> String {
         colors.map { ModelMaterials.key($0) }.joined(separator: "|")
@@ -25,7 +36,7 @@ enum RigTemplates {
         let palette = BikePalette(style)
         let content = body(style.body, palette, layout)
         let flat = ModelKit.flatten(content, name: "chassis")
-        if chassisCache.count >= cacheLimit { chassisCache.removeAll() }
+        evict(&chassisCache)
         chassisCache[key] = flat
         return flat.clone()
     }
@@ -68,7 +79,7 @@ enum RigTemplates {
                 content.addChildNode(single)
             }
             template = ModelKit.flatten(content, name: "wheelGeometry")
-            if wheelCache.count >= cacheLimit { wheelCache.removeAll() }
+            evict(&wheelCache)
             wheelCache[key] = template
         }
         let holder = SCNNode()
@@ -99,7 +110,7 @@ enum RigTemplates {
             holder.addChildNode(moving)
             root.addChildNode(holder)
         }
-        if riderCache.count >= cacheLimit { riderCache.removeAll() }
+        evict(&riderCache)
         riderCache[key] = root
         return root.clone()
     }

@@ -47,7 +47,6 @@ struct SpeedDial: View {
                 .frame(width: 4, height: size * 0.34)
                 .offset(y: -size * 0.17)
                 .rotationEffect(.degrees(angle(value)))
-                .shadow(color: Palette.redTop, radius: isBoosting ? 6 : 0)
             Circle().fill(Palette.outline).frame(width: 12, height: 12)
             VStack(spacing: -2) {
                 Text("\(kmh)")
@@ -61,7 +60,6 @@ struct SpeedDial: View {
             .offset(y: size * 0.24)
         }
         .frame(width: size, height: size)
-        .shadow(color: .black.opacity(0.55), radius: 6, x: 0, y: 4)
         .allowsHitTesting(false)
         .accessibilityElement()
         .accessibilityLabel("Скорость \(kmh) километров в час")
@@ -88,6 +86,10 @@ struct BoostButton: View {
         let lit = canBoost || isBoosting
         Button(action: action) {
             ZStack {
+                // A solid halo instead of a blurred glow: no offscreen pass every frame.
+                Circle()
+                    .stroke(Palette.greenTop.opacity(lit ? 0.45 : 0), lineWidth: 6)
+                    .padding(-4)
                 Circle().fill(Color.black.opacity(0.55))
                 Circle()
                     .trim(from: 0, to: max(0, min(1, fraction)))
@@ -114,7 +116,6 @@ struct BoostButton: View {
                 .outlined(width: 1.5)
             }
             .frame(width: size, height: size)
-            .shadow(color: lit ? Palette.greenTop.opacity(0.8) : .clear, radius: lit && !reduceMotion ? 12 : 0)
             .scaleEffect(isBoosting && !reduceMotion ? 1.08 : 1)
             .animation(.easeOut(duration: 0.2), value: isBoosting)
             .opacity(lit ? 1 : 0.7)
@@ -126,11 +127,10 @@ struct BoostButton: View {
     }
 }
 
-/// A stream marker ahead: which lane it will pour on.
+/// A stream marker ahead: which lane it will pour on. Deliberately static: an endless blink
+/// animation would make SwiftUI redraw every frame for the whole time the marker is up.
 struct StreamWarning: View {
     let lane: Int
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var blink = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -151,12 +151,7 @@ struct StreamWarning: View {
         .padding(.vertical, 6)
         .background(Capsule().fill(Palette.piss))
         .overlay(Capsule().strokeBorder(Palette.outline, lineWidth: 2.5))
-        .opacity(blink ? 0.55 : 1)
         .allowsHitTesting(false)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.25).repeatForever(autoreverses: true)) { blink = true }
-        }
         .accessibilityElement()
         .accessibilityLabel(laneText)
     }
@@ -204,7 +199,6 @@ struct PopupStack: View {
                 .outlined(width: isDistrict ? 3 : 2)
         }
         .rotationEffect(.degrees(isDistrict || reduceMotion ? 0 : -4))
-        .hudShadow()
         .accessibilityElement(children: .combine)
     }
 

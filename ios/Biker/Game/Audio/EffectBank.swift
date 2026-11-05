@@ -2,7 +2,7 @@ import AVFoundation
 
 /// Small pools of player nodes for one-shot effects. Each sound interrupts its own node, so nothing queues
 /// behind anything else; coin chimes are dropped when the chime pool is full instead of lagging.
-/// Main thread only.
+/// All nodes are attached once at launch; playing only schedules a ready buffer. Main thread only.
 final class EffectBank {
     private struct Voice {
         let node: AVAudioPlayerNode
@@ -13,7 +13,7 @@ final class EffectBank {
     private enum Pool { case chime, general, fart }
 
     private static let chimeVoiceCount = 3
-    private static let generalVoiceCount = 4
+    private static let generalVoiceCount = 5
     private static let fartVoiceCount = 2
     /// Two chimes closer than this sound like one; the second is dropped.
     private static let minChimeSpacing: TimeInterval = 0.03
@@ -52,10 +52,11 @@ final class EffectBank {
         start(buffer, pool: .fart, index: Self.pick(farts, now: now), volume: volume, now: now)
     }
 
+    /// Stops every voice in place (no new arrays), so pausing never allocates.
     func stopAll() {
-        chimes = Self.stopped(chimes)
-        general = Self.stopped(general)
-        farts = Self.stopped(farts)
+        Self.stop(&chimes)
+        Self.stop(&general)
+        Self.stop(&farts)
     }
 
     // MARK: - Private
@@ -89,10 +90,11 @@ final class EffectBank {
         return oldest
     }
 
-    private static func stopped(_ voices: [Voice]) -> [Voice] {
-        voices.map { voice -> Voice in
-            voice.node.stop()
-            return Voice(node: voice.node)
+    private static func stop(_ voices: inout [Voice]) {
+        for index in voices.indices {
+            voices[index].node.stop()
+            voices[index].startedAt = 0
+            voices[index].busyUntil = 0
         }
     }
 

@@ -43,6 +43,8 @@ final class BikeEffects {
     private var lean = 0.0
     private var yaw = 0.0
     private var crash = 0.0
+    /// Shows the shield, magnet ring, glitter and trail while the world warms up behind the loading screen.
+    var warming = false
     var budget: CGFloat = 1
 
     init(parent: SCNNode, library: MaterialLibrary, headlight: SCNNode) {
@@ -55,6 +57,7 @@ final class BikeEffects {
             return material
         }
         magnetRing = Shapes.decal(3.2, 3.2, ring, at: Shapes.v(0, 0.05, 0))
+        magnetRing.castsShadow = false
         ruts = RutTrail(parent: parent, library: library)
         parent.addChildNode(holder)
         holder.addChildNode(shield)
@@ -168,21 +171,27 @@ final class BikeEffects {
         let sweep = Float(frame.speed * 0.45)
         fart.acceleration = SCNVector3(0, 0.6, sweep)
         if let trail {
-            trail.system.birthRate = running && frame.boosting ? trail.fullRate * budget : 0
+            trail.system.birthRate = (running && frame.boosting) || warming ? trail.fullRate * budget : 0
             trail.system.acceleration = SCNVector3(trail.system.acceleration.x, trail.system.acceleration.y, sweep * 1.4)
         }
-        glitter.birthRate = running && frame.doubler > 0 ? 30 * budget : 0
+        glitter.birthRate = (running && frame.doubler > 0) || warming ? 30 * budget : 0
     }
 
     private func showPowerUps(_ frame: BikeFrame) {
         let shieldOn = frame.shield > 0 && !frame.crashed
         let fading = frame.shield < 1.5 && sin(frame.clock * 20) > 0
-        shield.isHidden = !shieldOn || fading
+        shield.isHidden = warming ? false : !shieldOn || fading
         let breathe = Float(1 + 0.04 * sin(frame.clock * 5))
         shield.scale = SCNVector3(0.9 * breathe, 1.05 * breathe, 1.45 * breathe)
-        magnetRing.isHidden = frame.magnet <= 0 || frame.crashed
+        magnetRing.isHidden = warming ? false : frame.magnet <= 0 || frame.crashed
         let ringScale = Float(1 + 0.12 * sin(frame.clock * 6))
         magnetRing.scale = SCNVector3(ringScale, ringScale, ringScale)
+    }
+
+    /// The bike and rider last dressed, if any.
+    var dressedStyles: (bike: BikeStyle, rider: RiderStyle)? {
+        guard let bikeStyle, let riderStyle else { return nil }
+        return (bikeStyle, riderStyle)
     }
 
     /// Where the exhaust tip is in the scene, for boost flashes.

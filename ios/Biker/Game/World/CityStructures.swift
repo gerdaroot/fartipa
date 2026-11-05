@@ -69,6 +69,6 @@ enum CityStructures {
             CityTextures.neonSign("ТОННЕЛЬ «КИШКА»", color: ColorValue(hex: 0x8CFF2E), accent: ColorValue(hex: 0xFF2E93))
         }
         holder.addChildNode(Shapes.panel(11, 3, name, at: Shapes.v(0, height + 2.2, 0.05)))
-        return kit.library.flatten(holder, castsShadow: true)
+        return kit.library.flatten(holder)
     }
 }

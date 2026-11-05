@@ -1,14 +1,16 @@
 import SceneKit
 import UIKit
 
-/// Moonlight (the one shadow-casting light, following the bike), a dim ambient fill
-/// and the bike's headlight. Everything else that glows is emissive.
+/// Moonlight (the one shadow-casting light, following the bike, high tier only), a dim ambient fill
+/// and the bike's headlight. Everything else that glows is emissive. Only the bike casts shadows,
+/// into a small map with tight bounds around it.
 @MainActor
 final class WorldLighting {
     private static let moonIntensity: CGFloat = 520
     private static let ambientIntensity: CGFloat = 180
     private static let headlightIntensity: CGFloat = 2600
-    private static let shadowArea = 9.0
+    private static let shadowArea = 6.0
+    private static let shadowMapSide: CGFloat = 512
     private static let moonOffset = SCNVector3(-6, 22, 6)
 
     let moonNode = SCNNode()
@@ -20,17 +22,17 @@ final class WorldLighting {
     init(root: SCNNode) {
         moon.type = .directional
         moon.intensity = Self.moonIntensity
-        moon.castsShadow = true
+        moon.castsShadow = false
         moon.shadowMode = .forward
         moon.automaticallyAdjustsShadowProjection = false
         moon.orthographicScale = Self.shadowArea
-        moon.shadowMapSize = CGSize(width: 1024, height: 1024)
-        moon.shadowSampleCount = 4
-        moon.shadowRadius = 2.5
+        moon.shadowMapSize = CGSize(width: Self.shadowMapSide, height: Self.shadowMapSide)
+        moon.shadowSampleCount = 2
+        moon.shadowRadius = 2
         moon.shadowColor = UIColor(white: 0, alpha: 0.65)
         moon.shadowBias = 0.05
-        moon.zNear = 1
-        moon.zFar = 60
+        moon.zNear = 12
+        moon.zFar = 40
         moonNode.light = moon
         moonNode.position = Self.moonOffset
         moonNode.look(at: SCNVector3(0, 0, -3))

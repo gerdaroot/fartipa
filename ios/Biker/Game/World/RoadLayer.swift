@@ -10,11 +10,13 @@ enum RoadMetrics {
 
 /// The glossy poop highway: tiles of road with glowing lane markings, raised sidewalks with a
 /// neon curb, crash barriers, and plain dirt beyond. Tiles recycle as the bike rides.
+/// Few long tiles: each is one flattened node with one draw call per material, so the whole road
+/// costs about 35 draw calls and still reaches past the end of the fog.
 @MainActor
 final class RoadLayer {
-    static let tileLength = 40.0
-    private static let tileCount = 9
-    private static let tileSegments = 10
+    static let tileLength = 80.0
+    private static let tileCount = 5
+    private static let tileSegments = 20
     private static let roadWidth = BikeRun.roadHalfWidth * 2 + 0.6
     private static let laneLineX: [Double] = [-1.3, 1.3]
     private static let edgeLineX = BikeRun.roadHalfWidth - 0.15

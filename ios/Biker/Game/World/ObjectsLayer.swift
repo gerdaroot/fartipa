@@ -37,7 +37,16 @@ final class VehicleItem: PooledItem {
 @MainActor
 final class ObjectsLayer {
     private static let visibleAhead = 230.0
+    /// Coins are small; past this they are a few pixels in the fog, so they are not drawn.
+    private static let coinsAhead = 170.0
     private static let visibleBehind = 14.0
+    /// Pool sizes for the worst case the road generator can put in view, so nothing is built mid-ride.
+    private static let streamCount = 24
+    private static let pileCount = 16
+    private static let coinCount = 72
+    private static let goldenCount = 4
+    private static let vehiclesPerKind = 6
+    private static let pickupsPerKind = 2
 
     private let root: SCNNode
     private let library: MaterialLibrary
@@ -57,20 +66,41 @@ final class ObjectsLayer {
         parent.addChildNode(holder)
         let kit = StreamKit(library: library)
         streamKit = kit
-        streams = KeyedPool(parent: holder, prewarm: 14) { StreamItem(kit: kit) }
+        streams = KeyedPool(parent: holder, prewarm: Self.streamCount) { StreamItem(kit: kit) }
         var pileSeed: UInt64 = 0
-        piles = KeyedPool(parent: holder, prewarm: 6) {
+        piles = KeyedPool(parent: holder, prewarm: Self.pileCount) {
             pileSeed &+= 1
             return ObjectModels.pile(library: library, seed: pileSeed)
         }
-        coins = KeyedPool(parent: holder, prewarm: 40) { ObjectModels.coin(library: library, golden: false) }
-        goldenCoins = KeyedPool(parent: holder, prewarm: 3) { ObjectModels.coin(library: library, golden: true) }
+        coins = KeyedPool(parent: holder, prewarm: Self.coinCount) { ObjectModels.coin(library: library, golden: false) }
+        goldenCoins = KeyedPool(parent: holder, prewarm: Self.goldenCount) { ObjectModels.coin(library: library, golden: true) }
         for kind in VehicleKind.allCases {
-            vehicles[kind] = KeyedPool(parent: holder, prewarm: 3) { VehicleItem(kind: kind, library: library) }
+            vehicles[kind] = KeyedPool(parent: holder, prewarm: Self.vehiclesPerKind) { VehicleItem(kind: kind, library: library) }
         }
         for kind in PickupKind.allCases {
-            pickups[kind] = KeyedPool(parent: holder, prewarm: 1) { ObjectModels.pickup(kind, library: library) }
+            pickups[kind] = KeyedPool(parent: holder, prewarm: Self.pickupsPerKind) { ObjectModels.pickup(kind, library: library) }
         }
+        for index in 0..<VehicleModels.paints.count { _ = VehicleModels.paint(index, library: library) }
+    }
+
+    /// Shows every pooled item spread out in front of the camera (or hides them again), so their
+    /// shaders, textures and geometry reach the GPU behind the loading screen, not mid-ride.
+    func setWarming(_ on: Bool) {
+        var slot = 0
+        let show: (SCNNode) -> Void = { node in
+            node.isHidden = !on
+            guard on else { return }
+            let column = slot % 9
+            let row = slot / 9
+            node.position = SCNVector3(Float(column - 4) * 1.6, 0, Float(-12 - row * 5))
+            slot += 1
+        }
+        streams.forEachSpare { show($0.root) }
+        piles.forEachSpare { show($0.root) }
+        coins.forEachSpare { show($0.root) }
+        goldenCoins.forEachSpare { show($0.root) }
+        for pool in vehicles.values { pool.forEachSpare { show($0.root) } }
+        for pool in pickups.values { pool.forEachSpare { show($0.root) } }
     }
 
     /// Drops every node, e.g. when a new ride starts.
@@ -143,7 +173,7 @@ final class ObjectsLayer {
         goldenCoins.begin()
         let spin = Float((clock * 3.4).truncatingRemainder(dividingBy: 2 * .pi))
         for coin in list {
-            guard let ahead = visible(coin.z, distance) else { continue }
+            guard let ahead = visible(coin.z, distance), ahead < Self.coinsAhead else { continue }
             let pool = coin.isGolden ? goldenCoins : coins
             let item = pool.item(for: coin.id).item
             place(item.root, x: coin.x, ahead: ahead, lift: 0, bend: bend)

@@ -26,7 +26,8 @@ final class SceneryRow {
 
     let period: Double
     private let behind: Double
-    private let maxAhead: Double
+    /// Items further ahead than this are hidden. Lower tiers draw less of the city.
+    var maxAhead: Double
     private var items: [Item] = []
 
     init(period: Double, behind: Double, maxAhead: Double) {
@@ -53,8 +54,12 @@ final class SceneryRow {
             }
             let sceneZ = distance - worldZ
             let node = item.node
-            node.isHidden = !items[index].isShown || sceneZ < -maxAhead
-            node.position = SCNVector3(node.position.x, node.position.y, Float(sceneZ))
+            let hidden = !items[index].isShown || sceneZ < -maxAhead
+            if node.isHidden != hidden { node.isHidden = hidden }
+            guard !hidden else { continue }
+            var position = node.position
+            position.z = Float(sceneZ)
+            node.position = position
         }
     }
 

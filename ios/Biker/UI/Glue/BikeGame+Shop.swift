@@ -2,7 +2,24 @@ import Foundation
 
 /// Buying, equipping, upgrades, the daily reward and achievement toasts.
 extension BikeGame {
+    /// Rapid taps on garage cards rebuild only the last one's bike.
+    private static let previewDelayNanos: UInt64 = 180_000_000
+
     // MARK: - Skins
+
+    /// Puts the equipped skins on the bike, or a garage preview in place of one of them.
+    /// `BikeWorld.dress` rebuilds the rig only when the bike or rider actually changes.
+    func dressWorld(preview: SkinInfo? = nil) {
+        let bikeId = preview?.kind == .bike ? preview?.id : nil
+        let riderId = preview?.kind == .rider ? preview?.id : nil
+        let trailId = preview?.kind == .trail ? preview?.id : nil
+        guard
+            let bike = Catalog.bike(id: bikeId ?? profile.bikeId) ?? Catalog.bike(id: Catalog.starterBikeId),
+            let rider = Catalog.rider(id: riderId ?? profile.riderId) ?? Catalog.rider(id: Catalog.starterRiderId),
+            let trail = Catalog.trail(id: trailId ?? profile.trailId) ?? Catalog.trail(id: Catalog.starterTrailId)
+        else { return }
+        world.dress(bike: bike.style, rider: rider.style, trail: trail.style)
+    }
 
     /// Equips an owned skin or buys one that can be bought (and equips it).
     func tapSkin(id: String) {
@@ -15,9 +32,15 @@ extension BikeGame {
     }
 
     /// Shows a skin on the bike in the garage without buying it.
+    /// The card is highlighted at once by the screen; the 3D bike follows after a short pause.
     func preview(id: String) {
-        dressWorld(preview: Catalog.info(id: id))
         notices.clearMessage()
+        pendingPreview?.cancel()
+        pendingPreview = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.previewDelayNanos)
+            guard !Task.isCancelled, let self, self.phase == .garage else { return }
+            self.dressWorld(preview: Catalog.info(id: id))
+        }
     }
 
     private func equip(_ info: SkinInfo) {
@@ -27,6 +50,7 @@ extension BikeGame {
         commit(updated)
         sound.play(.button)
         haptics.tick()
+        pendingPreview?.cancel()
         dressWorld()
     }
 
@@ -42,6 +66,7 @@ extension BikeGame {
             notices.clearMessage()
             notices.toast("Куплено!", info.name, tone: .info, now: now)
             announceAchievements(since: before)
+            pendingPreview?.cancel()
             dressWorld()
         case .notEnoughCoins:
             refuse("Не хватает \(info.price - profile.coins) говнокоинов")
@@ -105,7 +130,7 @@ extension BikeGame {
         switch updated.claimDaily(now: Date(), secondsFromGMT: secondsFromGMT) {
         case .claimed(let reward, let streak):
             commit(updated)
-            sound.play(.purchase)
+            sound.play(.dailyReward)
             haptics.success()
             notices.toast("Ежедневный подгон", "+\(reward) говнокоинов, день \(streak)", tone: .reward, now: now)
             announceAchievements(since: before)

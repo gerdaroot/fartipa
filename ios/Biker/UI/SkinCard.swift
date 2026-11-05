@@ -53,11 +53,15 @@ struct SkinCard: View {
                 ))
                 .overlay(Circle().strokeBorder(Palette.outline, lineWidth: 2))
                 .frame(width: 58, height: 58)
+            // A soft ring instead of a blurred glow: cards scroll, and blur would re-render each frame.
+            Circle()
+                .fill(swatchColor(2).opacity(0.35))
+                .frame(width: 28, height: 28)
+                .offset(x: 18, y: 18)
             Circle()
                 .fill(swatchColor(2))
                 .frame(width: 18, height: 18)
                 .overlay(Circle().strokeBorder(Palette.outline, lineWidth: 1.5))
-                .shadow(color: swatchColor(2), radius: 6)
                 .offset(x: 18, y: 18)
         }
         .frame(height: 64)

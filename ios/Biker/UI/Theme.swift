@@ -80,11 +80,6 @@ extension View {
     func outlined(_ color: Color = Palette.outline, width: CGFloat = 2) -> some View {
         modifier(OutlinedModifier(color: color, width: width))
     }
-
-    /// The dark drop shadow every HUD element carries so it reads over a bright road.
-    func hudShadow() -> some View {
-        shadow(color: .black.opacity(0.7), radius: 3, x: 0, y: 2)
-    }
 }
 
 /// A chunky game button: the face sits on a darker lip and sinks into it when pressed.
@@ -108,16 +103,24 @@ struct ChunkyButtonStyle: ButtonStyle {
         }
     }
 
+    /// No `.shadow` here: over a 3D view that redraws every frame, each blurred shadow costs an
+    /// offscreen pass per frame. The text "shadow" is a plain offset copy instead.
     func makeBody(configuration: Configuration) -> some View {
         let set = colors
         let text: Color = kind == .gold ? Palette.ink : Palette.cream
-        return configuration.label
+        let under: Color = kind == .gold ? Color.white.opacity(0.4) : Color.black.opacity(0.6)
+        return ZStack {
+            configuration.label
+                .foregroundStyle(under)
+                .offset(y: 1.5)
+                .accessibilityHidden(true)
+            configuration.label
+                .foregroundStyle(text)
+        }
             .font(GameFont.label(fontSize))
             .textCase(.uppercase)
             .lineLimit(1)
             .minimumScaleFactor(0.6)
-            .foregroundStyle(text)
-            .shadow(color: kind == .gold ? .white.opacity(0.4) : .black.opacity(0.6), radius: 0, x: 0, y: 1.5)
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, minHeight: height)
             .background(shape.fill(LinearGradient(colors: [set.top, set.bottom], startPoint: .top, endPoint: .bottom)))
@@ -128,8 +131,6 @@ struct ChunkyButtonStyle: ButtonStyle {
             .offset(y: configuration.isPressed ? lip : 0)
             .background(shape.fill(set.edge).overlay(shape.strokeBorder(Palette.outline, lineWidth: 2.5)).offset(y: lip))
             .padding(.bottom, lip)
-            .compositingGroup()
-            .shadow(color: .black.opacity(0.5), radius: 8, x: 0, y: 6)
             .contentShape(Rectangle())
             .opacity(isEnabled ? 1 : 0.5)
             .animation(.easeOut(duration: 0.07), value: configuration.isPressed)
@@ -155,6 +156,5 @@ struct PanelBackground: View {
             .fill(LinearGradient(colors: [Palette.panelTop, Palette.panelBottom], startPoint: .top, endPoint: .bottom))
             .overlay(shape.strokeBorder(rim, lineWidth: 1.5))
             .overlay(shape.inset(by: 3).strokeBorder(Color.black.opacity(0.4), lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 14, x: 0, y: 8)
     }
 }

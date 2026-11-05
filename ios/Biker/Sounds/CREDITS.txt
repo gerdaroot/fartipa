@@ -1,0 +1,40 @@
+Sound effects of «Пиздец крутой байкер 3Д» (files sfx-*.caf in this folder)
+
+Every source below is released under CC0 1.0 Universal (public domain dedication,
+https://creativecommons.org/publicdomain/zero/1.0/). No attribution is required; it is given anyway.
+The files here are edits of the originals: mixed to mono, resampled to 44.1 kHz 16-bit, trimmed,
+sometimes slowed down, layered and loudness-matched. The fart sounds are the game authors' own
+recordings (ios/PoopDraw/Sounds) and are not listed here.
+
+1. "Sci-Fi Sounds" by Kenney (kenney.nl), CC0
+   https://opengameart.org/content/sci-fi-sounds  (file sci-fi_sounds.zip)
+   Used: explosionCrunch_000/001/002, impactMetal_001/003, slime_000/001, forceField_001,
+         thrusterFire_001/003, lowFrequency_explosion_000/001
+   -> sfx-hit-1, sfx-hit-2, sfx-smash-1, sfx-skid-1, sfx-skid-2, sfx-shield-1, sfx-boost-1, sfx-boost-2
+
+2. "Interface Sounds" by Kenney (kenney.nl), CC0
+   https://opengameart.org/content/interface-sounds  (file kenney_interfaceSounds.zip)
+   Used: click_002, select_002  -> sfx-button-1, sfx-button-2
+
+3. "63 Digital sound effects (lasers, phasers, space etc.)" by Kenney (kenney.nl), CC0
+   https://opengameart.org/content/63-digital-sound-effects-lasers-phasers-space-etc  (file Digital_SFX_Set.zip)
+   Used: powerUp4, powerUp7  -> sfx-pickup-1, sfx-pickup-2
+
+4. "10 8bit coin sounds" by Luke.RUSTLTD, CC0
+   https://opengameart.org/content/10-8bit-coin-sounds  (file coin_sounds.zip)
+   Used: coin2, coin5, coin8  -> sfx-coin-1, sfx-coin-2, sfx-coin-3
+
+5. "Level up, power up, Coin get (13 Sounds)" by wobbleboxx (WobbleBoxx Workshop), CC0
+   https://opengameart.org/content/level-up-power-up-coin-get-13-sounds  (file SoundPack01.zip)
+   Used: Coin01, Rise03, Rise06, Downer01, Upper01
+   -> sfx-golden-1, sfx-purchase-1, sfx-upgrade-1, sfx-reward-1, sfx-gameover-1, sfx-district-1
+
+6. "80 CC0 RPG SFX" by rubberduck, CC0
+   https://opengameart.org/content/80-cc0-rpg-sfx  (file 80-CC0-RPG-SFX_0.zip)
+   Used: item_coins_01, item_coins_02  -> sfx-golden-1, sfx-purchase-1, sfx-reward-1
+
+7. "Swishes Sound Pack" by artisticdude, CC0
+   https://opengameart.org/content/swishes-sound-pack  (file swishes.zip)
+   Used: swish-2/3/4/6/7/8/9  -> sfx-whoosh-1, sfx-whoosh-2, sfx-whoosh-3, sfx-boost-1, sfx-boost-2
+
+Licences were read from each OpenGameArt page on 2026-11-05.

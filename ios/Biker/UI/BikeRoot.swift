@@ -1,9 +1,49 @@
 import SceneKit
 import SwiftUI
 
-/// The 3D world fills the screen; each phase puts its own SwiftUI layer over it.
+/// Shows the loading screen at once, then builds the game on the next run-loop turn so the
+/// heavy setup (scene, audio) never sits behind a blank launch screen.
 struct BikeRoot: View {
-    @StateObject private var game = BikeGame(defaults: .standard)
+    @StateObject private var holder = GameHolder()
+
+    var body: some View {
+        ZStack {
+            if let game = holder.game {
+                GameRoot(game: game)
+            } else {
+                LoadingScreen()
+            }
+        }
+        .preferredColorScheme(.dark)
+        .dynamicTypeSize(.xSmall ... .accessibility1)
+        .onAppear(perform: { holder.start() })
+    }
+}
+
+@MainActor
+private final class GameHolder: ObservableObject {
+    /// Long enough for the loading screen to reach the display before the main thread gets busy.
+    private static let firstFrameNanos: UInt64 = 60_000_000
+
+    @Published private(set) var game: BikeGame?
+    private var isStarting = false
+
+    func start() {
+        guard game == nil, !isStarting else { return }
+        isStarting = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.firstFrameNanos)
+            guard let self, self.game == nil else { return }
+            let made = BikeGame(defaults: .standard)
+            self.game = made
+            made.launch()
+        }
+    }
+}
+
+/// The 3D world fills the screen; each phase puts its own SwiftUI layer over it.
+private struct GameRoot: View {
+    @ObservedObject var game: BikeGame
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -11,13 +51,16 @@ struct BikeRoot: View {
             WorldHost(world: game.world)
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
-            screen
+            if !game.isLoading { screen }
             ToastStack(notices: game.notices)
+            if game.isLoading {
+                LoadingScreen().transition(.opacity)
+            }
+            PerfOverlay(perf: game.perf)
         }
-        .preferredColorScheme(.dark)
-        .dynamicTypeSize(.xSmall ... .accessibility1)
+        .background(ThreeFingerTap(action: { game.togglePerfOverlay() }))
         .animation(.easeInOut(duration: 0.22), value: game.phase)
-        .onAppear(perform: { game.launch() })
+        .animation(.easeInOut(duration: 0.3), value: game.isLoading)
         .onChange(of: scenePhase) { phase in
             switch phase {
             case .background: game.enterBackground()

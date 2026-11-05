@@ -46,6 +46,8 @@ final class RideFeed: ObservableObject {
     private static let hintSeconds = 4.0
     private static let hintRides = 3
     private static let msToKmh = 3.6
+    /// Numbers that change every frame (score, speed, coins, gauges) redraw at most this often.
+    private static let numbersInterval = 1.0 / 15
 
     @Published private(set) var hud = HUDSnapshot()
     @Published private(set) var popups: [RidePopup] = []
@@ -53,15 +55,23 @@ final class RideFeed: ObservableObject {
     @Published private(set) var hitCount = 0
 
     private var nextId = 0
+    private var numbersShownAt = -Double.infinity
 
     func reset() {
         hud = HUDSnapshot()
-        popups = []
+        if !popups.isEmpty { popups = [] }
+        numbersShownAt = -.infinity
     }
 
-    func update(from run: BikeRun, ridesBefore: Int) {
+    /// Called every frame. Lives, warnings, pickups and boost state publish at once; the numbers
+    /// that change every frame publish at `numbersInterval` so the HUD redraws ~15 times a second.
+    func update(from run: BikeRun, ridesBefore: Int, now: Double) {
         let next = Self.snapshot(of: run, ridesBefore: ridesBefore)
-        if next != hud { hud = next }
+        guard next != hud else { return }
+        let onlyNumbers = Self.withNumbers(of: hud, in: next) == hud
+        if onlyNumbers, now - numbersShownAt < Self.numbersInterval { return }
+        numbersShownAt = now
+        hud = next
     }
 
     func flashHit() {
@@ -74,14 +84,21 @@ final class RideFeed: ObservableObject {
         popups = Array((popups + [fresh]).suffix(Self.maxPopups))
     }
 
+    /// Called every frame; publishes only when a popup actually expires.
     func expire(now: Double) {
-        let alive: (RidePopup) -> Bool = { popup in
-            let life = popup.tone == .district ? Self.districtSeconds : Self.popupSeconds
-            return now - popup.born <= life
+        guard !popups.isEmpty else { return }
+        var anyDead = false
+        for popup in popups where !Self.isAlive(popup, now: now) {
+            anyDead = true
+            break
         }
-        if popups.contains(where: { !alive($0) }) {
-            popups = popups.filter(alive)
-        }
+        guard anyDead else { return }
+        popups = popups.filter { Self.isAlive($0, now: now) }
+    }
+
+    private static func isAlive(_ popup: RidePopup, now: Double) -> Bool {
+        let life = popup.tone == .district ? districtSeconds : popupSeconds
+        return now - popup.born <= life
     }
 
     // MARK: - Snapshot
@@ -109,6 +126,18 @@ final class RideFeed: ObservableObject {
         hud.showsHint = run.time < hintSeconds && ridesBefore < hintRides
         hud.isHurt = run.invulnerable > 0 && !run.isOver
         return hud
+    }
+
+    /// `target` with the fast-changing numbers taken from `source`.
+    private static func withNumbers(of source: HUDSnapshot, in target: HUDSnapshot) -> HUDSnapshot {
+        var merged = target
+        merged.score = source.score
+        merged.coins = source.coins
+        merged.speedKmh = source.speedKmh
+        merged.dial = source.dial
+        merged.comboFraction = source.comboFraction
+        merged.boostFraction = source.boostFraction
+        return merged
     }
 
     private static func rounded(_ value: Double) -> Double {

@@ -1,16 +1,19 @@
 import AVFoundation
 
-enum SoundEffect: CaseIterable {
+/// Raw values index the decoded effect library; new cases only ever go at the end.
+enum SoundEffect: Int, CaseIterable {
     case coin, goldenCoin, hit, skid, nearMiss, pickup, shield, boostStart, purchase, upgrade, gameOver, button
+    case vehicleSmash, district, dailyReward
 }
 
-/// All the game's sound: the fart motor while riding, synthesised effects, and real farts for hits.
+/// All the game's sound: the fart motor while riding, recorded effects, and real farts for hits.
 /// Not MainActor, but call it from the main thread only. Everything is silent while muted.
+///
+/// Every node is attached at launch and every file is decoded once on a background queue, so a ride only
+/// schedules ready buffers. Starting the audio engine (slow: it talks to the audio server) also happens
+/// off the main thread, so nothing here can stall a frame.
 final class SoundPlayer {
-    private static let effectVolume: Float = 1
-    private static let chimeVolume: Float = 0.9
     private static let hitFartVolume: Float = 1
-    private static let thumpVolume: Float = 0.8
     private static let restartRetryInterval: TimeInterval = 1
     /// `play(.hit)` already farts; a `playFart()` right after it would double the recording.
     private static let fartSpacing: TimeInterval = 0.15
@@ -18,12 +21,14 @@ final class SoundPlayer {
     private let engine = AVAudioEngine()
     private let motor: FartEngine?
     private let bank: EffectBank?
-    private var effectBuffers: [SoundEffect: AVAudioPCMBuffer] = [:]
-    private var coinBuffers: [AVAudioPCMBuffer] = []
-    private var nextCoin = 0
+    private let startQueue = DispatchQueue(label: "krutoybiker.audio.start", qos: .userInitiated)
+    /// Indexed by `SoundEffect.rawValue`; empty until the background decode lands.
+    private var effects: [[AVAudioPCMBuffer]] = []
+    private var variants = VariantPicker(effectCount: SoundEffect.allCases.count)
     private var hitFarts: [AVAudioPCMBuffer] = []
-    private var hitBag = SoundBag(count: 0)
+    private var hitDeck = ShuffleDeck(count: 0)
     private var observers: [NSObjectProtocol] = []
+    private var starting = false
     private var lastRestartAttempt: TimeInterval = -.infinity
     private var lastFartAt: TimeInterval = -.infinity
 
@@ -44,8 +49,7 @@ final class SoundPlayer {
             bank = nil
         }
         configureSession()
-        buildEffects()
-        loadFartsInBackground()
+        loadSoundsInBackground()
         observeSession()
         applyMute()
         ensureEngineRunning()
@@ -59,53 +63,55 @@ final class SoundPlayer {
 
     // MARK: - API
 
-    /// Restarts audio after a call, a route change or a media reset. Cheap when already running.
+    /// Restarts audio after a call, a route change or a media reset. Returns at once: the engine starts on
+    /// a background queue. Cheap when already running or already starting.
     func ensureEngineRunning() {
-        guard !engine.isRunning else { return }
+        guard !engine.isRunning, !starting else { return }
+        starting = true
         lastRestartAttempt = ProcessInfo.processInfo.systemUptime
-        try? AVAudioSession.sharedInstance().setActive(true)
-        engine.prepare()
-        do {
-            try engine.start()
-        } catch {
-            return
+        let engine = self.engine
+        startQueue.async { [weak self] in
+            let started = SoundPlayer.start(engine)
+            DispatchQueue.main.async {
+                self?.engineStartFinished(started: started)
+            }
         }
-        // A (re)started engine resets every player's timeline.
-        motor?.engineRestarted()
-        bank?.stopAll()
     }
 
-    /// Every frame while riding; `speed01` runs 0...1. `active` false fades the motor out.
+    /// Every frame while riding; `speed01` runs 0...1. `active` false fades the motor out. Never allocates.
     func setRide(active: Bool, speed01: Double, boosting: Bool) {
         let live = active && !isMuted
-        if live && !engine.isRunning {
-            let now = ProcessInfo.processInfo.systemUptime
-            if now - lastRestartAttempt >= Self.restartRetryInterval { ensureEngineRunning() }
-        }
+        if live { restartIfStopped() }
         motor?.setRide(active: live, speed01: speed01, boosting: boosting)
     }
 
     func play(_ effect: SoundEffect) {
         guard !isMuted, let bank else { return }
-        ensureEngineRunning()
-        switch effect {
-        case .coin:
-            playCoin(bank)
-        case .hit:
-            if let thump = effectBuffers[.hit] { bank.play(thump, volume: Self.thumpVolume) }
-            playFart()
-        default:
-            if let buffer = effectBuffers[effect] { bank.play(buffer, volume: Self.effectVolume) }
+        guard engine.isRunning, !starting else {
+            restartIfStopped()
+            return
         }
+        if let buffer = nextBuffer(for: effect) {
+            let volume = EffectLibrary.volume(for: effect)
+            if effect == .coin {
+                bank.playChime(buffer, volume: volume)
+            } else {
+                bank.play(buffer, volume: volume)
+            }
+        }
+        if effect == .hit { playFart() }
     }
 
     /// One whole fart recording; none repeats until all the others have played.
     func playFart() {
         let now = ProcessInfo.processInfo.systemUptime
         guard !isMuted, let bank, now - lastFartAt >= Self.fartSpacing else { return }
-        guard let index = hitBag.next(), index < hitFarts.count else { return }
+        guard engine.isRunning, !starting else {
+            restartIfStopped()
+            return
+        }
+        guard let index = hitDeck.next(), index < hitFarts.count else { return }
         lastFartAt = now
-        ensureEngineRunning()
         bank.playFart(hitFarts[index], volume: Self.hitFartVolume)
     }
 
@@ -116,13 +122,46 @@ final class SoundPlayer {
         bank?.stopAll()
     }
 
-    // MARK: - Setup
+    // MARK: - Engine
 
-    private func playCoin(_ bank: EffectBank) {
-        guard !coinBuffers.isEmpty else { return }
-        let buffer = coinBuffers[nextCoin % coinBuffers.count]
-        nextCoin = (nextCoin + 1) % coinBuffers.count
-        bank.playChime(buffer, volume: Self.chimeVolume)
+    /// Runs on `startQueue`. Activating the session and starting the engine can block for a while.
+    private static func start(_ engine: AVAudioEngine) -> Bool {
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            // The engine may still start on an already active session; its own start decides.
+        }
+        engine.prepare()
+        do {
+            try engine.start()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func engineStartFinished(started: Bool) {
+        starting = false
+        guard started else { return }
+        // A (re)started engine resets every player's timeline.
+        motor?.engineRestarted()
+        bank?.stopAll()
+    }
+
+    /// Hot-path restart: at most one attempt per interval, so a dead route cannot hammer the audio server.
+    private func restartIfStopped() {
+        guard !engine.isRunning, !starting else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastRestartAttempt >= Self.restartRetryInterval else { return }
+        ensureEngineRunning()
+    }
+
+    private func nextBuffer(for effect: SoundEffect) -> AVAudioPCMBuffer? {
+        let index = effect.rawValue
+        guard effects.indices.contains(index) else { return nil }
+        let list = effects[index]
+        guard let pick = variants.next(effect: index, variants: list.count), pick < list.count else { return nil }
+        return list[pick]
     }
 
     private func applyMute() {
@@ -131,36 +170,33 @@ final class SoundPlayer {
     }
 
     /// `.playback` so the bike still farts with the ringer switch off; mixes with the player's music.
+    /// Activation happens with the engine start, off the main thread.
     private func configureSession() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-        try? session.setActive(true)
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
     }
 
-    private func buildEffects() {
-        var buffers: [SoundEffect: AVAudioPCMBuffer] = [:]
-        for effect in SoundEffect.allCases where effect != .coin {
-            buffers[effect] = GameAudioFormat.buffer(EffectSynth.samples(for: effect))
-        }
-        effectBuffers = buffers
-        coinBuffers = EffectSynth.coinPitches.compactMap { GameAudioFormat.buffer(EffectSynth.coin(pitch: $0)) }
-    }
+    // MARK: - Loading
 
-    /// Decoding sixteen compressed files takes a moment, so it happens off the main thread.
-    private func loadFartsInBackground() {
+    /// Decoding every effect and fart recording takes a moment, so it all happens off the main thread;
+    /// only the hand-over of finished buffers runs on main.
+    private func loadSoundsInBackground() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let library = EffectLibrary.decodeAll()
             let clips = FartDecoder.decodeAll()
             DispatchQueue.main.async {
-                self?.install(clips)
+                self?.install(library: library, clips: clips)
             }
         }
     }
 
-    private func install(_ clips: [FartClip]) {
+    private func install(library: [[AVAudioPCMBuffer]], clips: [FartClip]) {
+        effects = library
         hitFarts = clips.map { $0.full }
-        hitBag = SoundBag(count: hitFarts.count)
+        hitDeck = ShuffleDeck(count: hitFarts.count)
         motor?.install(clips.map { $0.engine })
     }
+
+    // MARK: - Session
 
     private func observeSession() {
         let center = NotificationCenter.default

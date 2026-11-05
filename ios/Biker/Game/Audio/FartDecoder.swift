@@ -32,7 +32,7 @@ enum FartDecoder {
         names.compactMap { name -> FartClip? in
             guard
                 let url = bundle.url(forResource: name, withExtension: nil),
-                let samples = readMono(url),
+                let samples = MonoFileReader.read(url, maxSeconds: maxSourceSeconds),
                 let trimmed = trimSilence(samples)
             else { return nil }
             return makeClip(trimmed)
@@ -51,54 +51,6 @@ enum FartDecoder {
             let full = GameAudioFormat.buffer(fullSamples)
         else { return nil }
         return FartClip(engine: engine, full: full)
-    }
-
-    /// Reads the file in its processing format (float, deinterleaved), averages channels, converts the rate.
-    private static func readMono(_ url: URL) -> [Float]? {
-        guard let file = try? AVAudioFile(forReading: url) else { return nil }
-        let format = file.processingFormat
-        let maxFrames = AVAudioFramePosition(maxSourceSeconds * format.sampleRate)
-        let frames = AVAudioFrameCount(max(0, min(file.length, maxFrames)))
-        guard
-            frames > 0,
-            format.channelCount > 0,
-            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)
-        else { return nil }
-        do {
-            try file.read(into: buffer, frameCount: frames)
-        } catch {
-            // Compressed files can report a slightly long length; keep whatever was decoded.
-            guard buffer.frameLength > 0 else { return nil }
-        }
-        guard let channels = buffer.floatChannelData else { return nil }
-        let count = Int(buffer.frameLength)
-        let channelCount = Int(format.channelCount)
-        guard count > 1 else { return nil }
-        var mono = [Float](repeating: 0, count: count)
-        let scale = 1 / Float(channelCount)
-        for channel in 0..<channelCount {
-            let data = channels[channel]
-            for index in 0..<count {
-                mono[index] += data[index] * scale
-            }
-        }
-        return resample(mono, from: format.sampleRate)
-    }
-
-    /// Linear interpolation is plenty for farts.
-    private static func resample(_ samples: [Float], from sourceRate: Double) -> [Float] {
-        guard sourceRate > 0, abs(sourceRate - rate) > 0.5 else { return samples }
-        let step = sourceRate / rate
-        let outCount = Int(Double(samples.count - 1) / step)
-        guard outCount > 1 else { return [] }
-        let last = samples.count - 1
-        return (0..<outCount).map { index -> Float in
-            let position = Double(index) * step
-            let left = min(Int(position), last)
-            let right = min(left + 1, last)
-            let fraction = Float(position - Double(left))
-            return samples[left] + (samples[right] - samples[left]) * fraction
-        }
     }
 
     private static func trimSilence(_ samples: [Float]) -> [Float]? {

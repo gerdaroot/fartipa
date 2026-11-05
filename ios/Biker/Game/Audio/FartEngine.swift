@@ -4,15 +4,16 @@ import AVFoundation
 /// starting slightly before the previous one ends, so the exhaust never goes quiet. A varispeed raises
 /// pitch and tempo with speed; boosting adds level, presence and distortion. Every change is smoothed.
 ///
-/// `setRide` only stores targets (cheap, called every frame). A main-queue timer that runs only while the
-/// motor is audible does the smoothing and the scheduling. No render callbacks: the audio thread only runs
-/// Apple's nodes. Main thread only.
+/// `setRide` only stores targets (cheap, called every frame, never allocates). One main-queue timer, made
+/// once at launch and only resumed while the motor is audible, does the smoothing and the scheduling at
+/// 30 Hz; farts are scheduled well ahead, so a main-thread hitch shorter than the lookahead never gaps the
+/// motor. No render callbacks: the audio thread only runs Apple's nodes. Main thread only.
 final class FartEngine {
     private static let voiceCount = 3
-    private static let tickInterval: Double = 1.0 / 60
+    private static let tickInterval: Double = 1.0 / 30
     private static let rate = GameAudioFormat.sampleRate
     /// Schedule the next fart this far (real seconds) before it must start, so its start time is in the future.
-    private static let lookaheadSeconds: Double = 0.12
+    private static let lookaheadSeconds: Double = 0.18
     private static let overlapSlow: Double = 0.05
     private static let overlapFast: Double = 0.14
     private static let maxOverlapFraction: Double = 0.4
@@ -42,7 +43,7 @@ final class FartEngine {
     private let distortion = AVAudioUnitDistortion()
 
     private var clips: [AVAudioPCMBuffer] = []
-    private var bag = SoundBag(count: 0)
+    private var bag = ShuffleDeck(count: 0)
 
     private var active = false
     private var targetSpeed: Double = 0
@@ -61,7 +62,8 @@ final class FartEngine {
     private var lastEnd: AVAudioFramePosition = 0
     /// Source samples left until the next fart should start (estimated between schedules).
     private var samplesUntilNext: Double = 0
-    private var timer: DispatchSourceTimer?
+    private let timer: DispatchSourceTimer
+    private var timerRunning = false
     private var lastTick: TimeInterval = 0
 
     /// Last values handed to the audio units; parameters are only written when they move.
@@ -76,6 +78,9 @@ final class FartEngine {
     init(engine: AVAudioEngine, voiceFormat: AVAudioFormat, busFormat: AVAudioFormat) {
         self.engine = engine
         voices = (0..<Self.voiceCount).map { _ in AVAudioPlayerNode() }
+        // Made once and kept suspended between rides, so starting the motor never allocates.
+        timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: Self.tickInterval, leeway: .milliseconds(5))
         let chain: [AVAudioNode] = [bus, varispeed, equalizer, distortion]
         chain.forEach { engine.attach($0) }
         voices.forEach { voice in
@@ -87,23 +92,28 @@ final class FartEngine {
         engine.connect(equalizer, to: distortion, format: busFormat)
         engine.connect(distortion, to: engine.mainMixerNode, format: busFormat)
         configureUnits()
+        timer.setEventHandler { [weak self] in
+            self?.tick()
+        }
     }
 
     deinit {
-        timer?.cancel()
+        timer.cancel()
+        // A suspended source must be resumed before it is released.
+        if !timerRunning { timer.resume() }
     }
 
     /// Hands over the decoded engine slices; the motor stays silent until this arrives.
     func install(_ buffers: [AVAudioPCMBuffer]) {
         clips = buffers
-        bag = SoundBag(count: buffers.count)
+        bag = ShuffleDeck(count: buffers.count)
     }
 
     func setRide(active: Bool, speed01: Double, boosting: Bool) {
         self.active = active
         targetSpeed = min(1, max(0, speed01.isFinite ? speed01 : 0))
         targetBoost = boosting ? 1 : 0
-        if active && timer == nil { startTimer() }
+        if active && !timerRunning { startTimer() }
     }
 
     /// Silences the motor at once (pause, game over, mute, interruption).
@@ -124,13 +134,8 @@ final class FartEngine {
         speed = targetSpeed
         boost = targetBoost
         lastTick = ProcessInfo.processInfo.systemUptime
-        let source = DispatchSource.makeTimerSource(queue: .main)
-        source.schedule(deadline: .now(), repeating: Self.tickInterval, leeway: .milliseconds(4))
-        source.setEventHandler { [weak self] in
-            self?.tick()
-        }
-        timer = source
-        source.resume()
+        timerRunning = true
+        timer.resume()
     }
 
     private func tick() {
@@ -148,8 +153,10 @@ final class FartEngine {
     }
 
     private func finish() {
-        timer?.cancel()
-        timer = nil
+        if timerRunning {
+            timer.suspend()
+            timerRunning = false
+        }
         stopVoices()
         level = 0
         writeVolume(0)

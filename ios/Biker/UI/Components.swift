@@ -67,7 +67,7 @@ struct RoundIconButton: View {
                 )))
                 .overlay(Circle().strokeBorder(Palette.outline, lineWidth: 2.5))
                 .overlay(Circle().inset(by: 3).strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
-                .shadow(color: .black.opacity(0.5), radius: 5, x: 0, y: 3)
+                .background(Circle().fill(Color.black.opacity(0.45)).offset(y: 3))
         }
         .buttonStyle(PressScaleStyle())
         .accessibilityLabel(label)
@@ -107,13 +107,15 @@ extension View {
     }
 }
 
-/// A big outlined headline, gold to orange.
+/// A big outlined headline, gold to orange. Drawn into one texture (`drawingGroup`) so the nine
+/// outline copies, the gradient and the drop are composited as a single layer.
 struct BigTitle: View {
     let text: String
     var size: CGFloat = 34
     var colors: [Color] = [Palette.goldTop, Palette.goldBottom]
 
     var body: some View {
+        let room: CGFloat = size / 12 + 4
         Text(text)
             .font(GameFont.title(size))
             .foregroundStyle(LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom))
@@ -122,6 +124,11 @@ struct BigTitle: View {
             .minimumScaleFactor(0.5)
             .outlined(width: max(2, size / 14))
             .shadow(color: .black.opacity(0.6), radius: 0, x: 0, y: size / 12)
+            .padding(room)
+            .drawingGroup()
+            .padding(-room)
+            .accessibilityElement()
+            .accessibilityLabel(text)
             .accessibilityAddTraits(.isHeader)
     }
 }

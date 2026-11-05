@@ -13,6 +13,7 @@ final class CityLayer {
     private static let shopCount = 12
     private static let nearCount = 14
     private static let farCount = 10
+    private static let gantryOffset = 150.0
 
     private let kit: CityKit
     private let root = SCNNode()
@@ -26,6 +27,7 @@ final class CityLayer {
     private let tunnels: SceneryRow
     private var signProps: [SignProp] = []
     private var gantryProp: GantryProp?
+    private var gantrySigns: GantrySigns?
     private var posterMaterial: SCNMaterial?
 
     init(parent: SCNNode, library: MaterialLibrary) {
@@ -64,7 +66,8 @@ final class CityLayer {
         }
         let gantry = CityProps.gantry(kit: kit)
         gantryProp = gantry
-        gantries.add(gantry.node, offset: 150, parent: root)
+        gantrySigns = GantrySigns(panels: gantry.panels)
+        gantries.add(gantry.node, offset: Self.gantryOffset, parent: root)
         bridges.add(CityStructures.bridge(kit: kit), offset: 610, parent: root)
         tunnels.add(CityStructures.tunnel(kit: kit), offset: TunnelSchedule.offset, parent: root)
     }
@@ -105,6 +108,21 @@ final class CityLayer {
         kit.pulse(time: time)
     }
 
+    /// Hides decor further ahead than `metres` (lower tiers draw less of the city).
+    func setDrawDistance(_ metres: Double) {
+        for row in [lamps, signs, shops, gantries] { row.maxAhead = metres }
+        nearTowers.maxAhead = metres + 40
+        farTowers.maxAhead = metres + 60
+        bridges.maxAhead = metres + 40
+        tunnels.maxAhead = metres + 40
+    }
+
+    /// Paints the first gantry signs ahead of time; call while loading.
+    func prepareSigns() {
+        let first = LoopMath.worldZ(offset: Self.gantryOffset, period: gantries.period, lap: 0)
+        gantrySigns?.show(worldZ: first, now: true)
+    }
+
     /// Puts a right-hand-built prop on one side of the road, turned to face it.
     private static func face(_ node: SCNNode, side: Double, x: Double) {
         node.position = SCNVector3(Float(side * x), node.position.y, node.position.z)
@@ -125,32 +143,10 @@ final class CityLayer {
         }
     }
 
+    /// The gantry gets fresh text every lap. The pictures are painted off the main thread and swapped
+    /// in when ready; the gantry is still a few hundred metres away at that point.
     private func dressGantry(worldZ: Double) {
-        guard let gantry = gantryProp, gantry.panels.count == 2 else { return }
-        let next = District.all.first { $0.startDistance > worldZ }
-        let title: String
-        let detail: String
-        if let next {
-            let kilometres = (next.startDistance - worldZ) / 1000
-            title = next.name.uppercased()
-            detail = String(format: "%.1f км  ↑", kilometres)
-        } else {
-            title = "ЖОПА МИРА"
-            detail = "ДАЛЬШЕ НЕКУДА"
-        }
-        var random = SlotRandom.make(row: 6, slot: 0, lap: Int(worldZ))
-        let jokes: [(String, String)] = [
-            ("ТУАЛЕТ", "0,5 км  →"), ("ОБЪЕЗД КУЧИ", "ДЕРЖИСЬ ЛЕВЕЕ"), ("НЕ ПЕРДЕТЬ", "ШТРАФ 500 ₽"),
-            ("ОСАДКИ: ЖЁЛТЫЕ", "ВКЛЮЧИ ДВОРНИКИ"), ("ЦЕНТР", "ПРЯМО И ВНИЗ"),
-        ]
-        let joke = jokes[random.int(below: jokes.count)]
-        Self.show(CityTextures.roadSign(title: title, detail: detail), on: gantry.panels[0])
-        Self.show(CityTextures.roadSign(title: joke.0, detail: joke.1), on: gantry.panels[1])
-    }
-
-    private static func show(_ image: UIImage, on panel: SCNNode) {
-        panel.geometry?.firstMaterial?.diffuse.contents = image
-        panel.geometry?.firstMaterial?.emission.contents = image
+        gantrySigns?.show(worldZ: worldZ)
     }
 
     // MARK: - Looks

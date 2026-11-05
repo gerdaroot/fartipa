@@ -23,6 +23,15 @@ enum SkyTextures {
         }
     }
 
+    /// A half-size copy for `scene.lightingEnvironment`: SceneKit filters it into reflections once,
+    /// and a smaller picture makes that one-time work much cheaper.
+    static func environment(from sky: UIImage) -> UIImage {
+        let size = CGSize(width: width / 2, height: height / 2)
+        return BikeTextures.renderer(size).image { _ in
+            sky.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
     private static func paintGradient(_ cg: CGContext, _ palette: WorldPalette) {
         let below = palette.horizon.scaled(0.75)
         Painter.verticalGradient(

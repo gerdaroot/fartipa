@@ -22,11 +22,31 @@ final class CityKit {
         for style in FacadeStyle.allCases {
             facadeImages[style] = CityTextures.facade(style, seed: UInt64(style.rawValue) &+ 3)
         }
-        for (index, slogan) in CityTextures.slogans.enumerated() {
+        let placeholder = BikeTextures.solid(UIColor(white: 0.02, alpha: 1))
+        for index in CityTextures.slogans.indices {
+            signMaterials.append(library.shared("sign-\(index)") { WorldMaterials.screen(placeholder, boost: 1.1) })
+        }
+    }
+
+    /// Paints the neon slogans on a background queue (text with blurred glow is slow) and puts them on
+    /// the sign materials. `done` runs on the main actor once every sign has its picture.
+    func paintSigns(done: @escaping @MainActor () -> Void) {
+        let jobs: [(text: String, color: ColorValue, accent: ColorValue)] = CityTextures.slogans.indices.map { index in
             let color = Self.neonColors[index % Self.neonColors.count]
             let accent = Self.neonColors[(index + 2) % Self.neonColors.count]
-            let image = CityTextures.neonSign(slogan, color: color, accent: accent)
-            signMaterials.append(library.shared("sign-\(index)") { WorldMaterials.screen(image, boost: 1.1) })
+            return (CityTextures.slogans[index], color, accent)
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let images: [UIImage] = jobs.map { CityTextures.neonSign($0.text, color: $0.color, accent: $0.accent) }
+            Task { @MainActor in
+                if let self {
+                    for (material, image) in zip(self.signMaterials, images) {
+                        material.diffuse.contents = image
+                        material.emission.contents = image
+                    }
+                }
+                done()
+            }
         }
     }
 

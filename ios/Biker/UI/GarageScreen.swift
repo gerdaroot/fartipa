@@ -196,7 +196,6 @@ private struct SkinHeadline: View {
                 .minimumScaleFactor(0.6)
                 .outlined(width: 2)
         }
-        .shadow(color: .black.opacity(0.6), radius: 6, x: 0, y: 3)
         .accessibilityElement(children: .combine)
     }
 }

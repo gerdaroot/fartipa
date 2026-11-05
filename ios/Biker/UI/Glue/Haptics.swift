@@ -12,9 +12,14 @@ final class Haptics {
     private let notice = UINotificationFeedbackGenerator()
     private var lastCoin = 0.0
 
+    /// Wakes the Taptic Engine so the first buzz of a ride is not late. The generators are made
+    /// once, never per event.
     func prepare() {
         heavy.prepare()
+        medium.prepare()
         light.prepare()
+        rigid.prepare()
+        notice.prepare()
     }
 
     func hit() { heavy.impactOccurred() }

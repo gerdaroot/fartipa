@@ -2,7 +2,9 @@ import SceneKit
 import UIKit
 
 /// The camera: chase behind the bike, pulled back and wider under gas, a slow orbit for the garage.
-/// HDR with bloom, vignette and a slight grade; FOV widens with speed; shakes on hits.
+/// HDR with bloom, vignette and a slight grade on the better tiers; FOV widens with speed; shakes on hits.
+/// No motion blur or colour fringe: both add full-screen passes and toggling them rebuilds the
+/// post-processing chain, which stalled the first boost.
 @MainActor
 final class CameraRig {
     private static let baseFov = 66.0
@@ -22,7 +24,8 @@ final class CameraRig {
     private var shakeAmount = 0.0
     private var kick = 0.0
     private var orbit = 0.0
-    private var isHigh = true
+    /// Forces the speed lines on while the world warms up its shaders behind the loading screen.
+    var warming = false
     var budget: CGFloat = 1
 
     init(root: SCNNode) {
@@ -38,24 +41,24 @@ final class CameraRig {
         linesNode.eulerAngles.x = .pi / 2
         linesNode.addParticleSystem(speedLines)
         cameraNode.addChildNode(linesNode)
-        configure(high: true)
-    }
-
-    func configure(high: Bool) {
-        isHigh = high
-        camera.wantsHDR = high
         camera.wantsExposureAdaptation = false
-        camera.exposureOffset = 0.25
-        camera.bloomIntensity = high ? 1.1 : 0
-        camera.bloomThreshold = 0.72
-        camera.bloomBlurRadius = 9
-        camera.vignettingIntensity = 0.55
-        camera.vignettingPower = 0.85
-        camera.saturation = 1.18
-        camera.contrast = 0.12
         camera.motionBlurIntensity = 0
         camera.colorFringeIntensity = 0
-        camera.colorFringeStrength = 0.8
+        configure(RenderSettings.of(.medium))
+    }
+
+    func configure(_ settings: RenderSettings) {
+        camera.wantsHDR = settings.hdr
+        camera.exposureOffset = settings.hdr ? 0.25 : 0
+        camera.bloomIntensity = settings.bloom
+        camera.bloomThreshold = 0.72
+        camera.bloomBlurRadius = settings.bloomRadius
+        camera.bloomIterationCount = 1
+        camera.vignettingIntensity = settings.grading ? 0.55 : 0
+        camera.vignettingPower = 0.85
+        camera.saturation = settings.grading ? 1.18 : 1
+        camera.contrast = settings.grading ? 0.12 : 0
+        camera.zFar = Double(settings.zFar)
     }
 
     func setMode(_ mode: BikeCamera) {
@@ -82,10 +85,8 @@ final class CameraRig {
         node.look(at: focus, up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 0, -1))
         updateFov(effective, rev: rev, dt: dt)
         updateShake(dt: dt, clock: clock, rev: rev)
-        let rushing = effective == .boost && dt > 0
+        let rushing = (effective == .boost && dt > 0) || warming
         speedLines.birthRate = rushing ? 90 * budget : 0
-        camera.motionBlurIntensity = isHigh && rushing ? 0.3 : 0
-        camera.colorFringeIntensity = isHigh && rushing ? 0.6 : 0
     }
 
     private func placement(_ mode: BikeCamera, bikeX: Double, lookAhead: Double, dt: Double) -> (eye: SCNVector3, focus: SCNVector3) {

@@ -54,6 +54,13 @@ enum BikeModels {
         )
     }
 
+    /// Builds and caches the templates of this bike and rider without returning a rig, so a later
+    /// `makeRig` (garage preview, ride start) is only a few node clones. Call while loading.
+    @MainActor
+    static func prewarm(bike: BikeStyle, rider: RiderStyle) {
+        _ = makeRig(bike: bike, rider: rider)
+    }
+
     /// Looks the skins up in the catalog; unknown ids fall back to the starter bike and rider.
     @MainActor
     static func makeRig(bikeId: String, riderId: String) -> BikeRig {

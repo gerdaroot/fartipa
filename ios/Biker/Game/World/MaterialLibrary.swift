@@ -26,6 +26,9 @@ final class MaterialLibrary {
 
     func material(named name: String) -> SCNMaterial? { byName[name] }
 
+    /// Every material made so far, for warming up the renderer.
+    var allMaterials: [SCNMaterial] { Array(byName.values) }
+
     func applyBend(_ amount: BendAmount) {
         guard amount != lastBend else { return }
         lastBend = amount
@@ -78,6 +81,7 @@ enum WorldMaterials {
         let material = SCNMaterial()
         material.lightingModel = lit ? .physicallyBased : .constant
         material.diffuse.contents = image
+        mipmapped(material.diffuse)
         material.blendMode = additive ? .add : .alpha
         material.writesToDepthBuffer = false
         material.readsFromDepthBuffer = true
@@ -96,7 +100,16 @@ enum WorldMaterials {
         material.diffuse.contents = image
         material.emission.contents = image
         material.emission.intensity = boost
+        mipmapped(material.diffuse)
+        mipmapped(material.emission)
         return material
+    }
+
+    /// Far-away pictures read from small mip levels: sharper at a distance and far less memory traffic.
+    static func mipmapped(_ property: SCNMaterialProperty) {
+        property.mipFilter = .linear
+        property.minificationFilter = .linear
+        property.magnificationFilter = .linear
     }
 
     static func repeating(_ property: SCNMaterialProperty, scaleX: Float, scaleY: Float) {

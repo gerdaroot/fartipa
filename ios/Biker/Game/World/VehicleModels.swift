@@ -26,8 +26,7 @@ enum VehicleModels {
         case .truck: buildTruck(holder, library)
         case .sewageTanker: buildTanker(holder, library)
         }
-        let flat = library.flatten(holder, castsShadow: true)
-        return flat
+        return library.flatten(holder)
     }
 
     // MARK: - Materials

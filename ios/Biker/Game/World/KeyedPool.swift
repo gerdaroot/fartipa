@@ -28,6 +28,7 @@ final class KeyedPool<Item: PooledItem> {
     private func fresh() -> Item {
         let item = make()
         item.root.isHidden = true
+        item.root.disableShadows()
         parent.addChildNode(item.root)
         return item
     }
@@ -62,6 +63,11 @@ final class KeyedPool<Item: PooledItem> {
 
     func forEachActive(_ body: (Item) -> Void) {
         for item in active.values { body(item) }
+    }
+
+    /// Visits the free items (all of them when no ride is running).
+    func forEachSpare(_ body: (Item) -> Void) {
+        for item in spare { body(item) }
     }
 
     private func release(_ id: Int) {
