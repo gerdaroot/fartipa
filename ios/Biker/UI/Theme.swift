@@ -105,34 +105,3 @@ struct Sheet<Content: View>: View {
         }
     }
 }
-
-/// Draws one level's figure from the same points the player traces.
-struct FigureShape: Shape {
-    let figure: Figure
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        for line in figure.paths {
-            let points = line.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
-            path.addLines(points)
-        }
-        return path
-    }
-}
-
-struct StarRow: View {
-    let filled: Int
-    var size: CGFloat = 13
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<3, id: \.self) { index in
-                Image(systemName: "star.fill")
-                    .font(.system(size: size))
-                    .foregroundStyle(index < filled ? Palette.gold : Palette.cream.opacity(0.18))
-            }
-        }
-        .accessibilityElement()
-        .accessibilityLabel("Звёзд: \(filled) из 3")
-    }
-}
