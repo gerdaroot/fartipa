@@ -1,11 +1,12 @@
 #!/bin/bash
 # Launches a Debug simulator build on each screen and saves a screenshot of it.
-# Usage: simulator-screenshots.sh <path to PoopDraw.app> <output folder>
+# Usage: simulator-screenshots.sh <path to .app> <output folder> <bundle id> <screen>...
 set -euo pipefail
 
 app_path="$1"
 output="$2"
-bundle_id="com.poopdraw.app"
+bundle_id="$3"
+shift 3
 mkdir -p "$output"
 
 udid=$(xcrun simctl list devices available -j | python3 -c '
@@ -20,7 +21,7 @@ xcrun simctl boot "$udid"
 xcrun simctl bootstatus "$udid" -b
 xcrun simctl install "$udid" "$app_path"
 
-for screen in menu levels free trace result bike-hub bike-run garage bike-over; do
+for screen in "$@"; do
   xcrun simctl launch --terminate-running-process "$udid" "$bundle_id" "--demo=$screen"
   sleep 12
   xcrun simctl io "$udid" screenshot "$output/$screen.png"

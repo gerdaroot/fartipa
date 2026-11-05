@@ -3,14 +3,13 @@ import SwiftUI
 
 struct BikeRoot: View {
     @ObservedObject var game: BikeGame
-    let onExit: () -> Void
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
             WorldHost(world: game.world).ignoresSafeArea()
             switch game.phase {
-            case .hub: BikeHub(game: game, onExit: onExit).transition(.opacity)
+            case .hub: BikeHub(game: game).transition(.opacity)
             case .garage: GarageScreen(game: game).transition(.opacity)
             case .riding: RideHUD(game: game)
             case .paused: PauseSheet(game: game).transition(.opacity)
@@ -56,20 +55,18 @@ struct CoinBadge: View {
 
 private struct BikeHub: View {
     @ObservedObject var game: BikeGame
-    let onExit: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                RoundIconButton(symbol: "chevron.left", label: "В меню", action: onExit)
                 Spacer()
                 CoinBadge(amount: game.profile.coins)
             }
             VStack(spacing: 0) {
-                Text("ПИЗДЕЦ СУПЕР")
+                Text("ПИЗДЕЦ КРУТОЙ")
                     .font(GameFont.title(25))
                     .foregroundStyle(Palette.cream)
-                Text("ГОВНОБАЙКЕР")
+                Text("БАЙКЕР")
                     .font(GameFont.title(44))
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)

@@ -208,11 +208,6 @@ struct ResultScreen: View {
             Text("\(result.score) очков из 100")
                 .font(GameFont.body(15))
                 .foregroundStyle(Palette.cream.opacity(0.85))
-            if model.starReward > 0 {
-                Text("+\(model.starReward) говнокоинов для байкера")
-                    .font(GameFont.label(15))
-                    .foregroundStyle(Palette.gold)
-            }
         }
     }
 }

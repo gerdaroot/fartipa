@@ -7,7 +7,6 @@ enum GameScreen: Equatable {
     case free
     case trace
     case result
-    case bike
 }
 
 /// Screens, scoring and saved progress. The board and the sound player do the work they are told to.
@@ -32,10 +31,8 @@ final class GameModel: ObservableObject {
     @Published private(set) var isSmoothing = false
     @Published private(set) var isMuted: Bool
     @Published var sharedImage: ShareImage?
-    @Published private(set) var starReward = 0
 
     let board = BoardView()
-    let bike: BikeGame
     private let sound: SoundPlayer
     private let haptic = UIImpactFeedbackGenerator(style: .soft)
     private let defaults = UserDefaults.standard
@@ -44,7 +41,6 @@ final class GameModel: ObservableObject {
     private var strokes: [[Point]] = []
     private var activeStrokes: [ObjectIdentifier: [Point]] = [:]
     private var hapticDistance: CGFloat = 0
-    private var hasNewDrawing = false
 
     var currentFigure: Figure { Figure.all[levelIndex] }
     var totalStars: Int { progress.values.reduce(0, +) }
@@ -56,9 +52,7 @@ final class GameModel: ObservableObject {
         let muted = UserDefaults.standard.bool(forKey: Key.muted)
         isMuted = muted
         progress = Progress.parse(UserDefaults.standard.data(forKey: Key.progress))
-        let player = SoundPlayer(muted: muted)
-        sound = player
-        bike = BikeGame(sound: player)
+        sound = SoundPlayer(muted: muted)
         wireBoard()
     }
 
@@ -83,21 +77,7 @@ final class GameModel: ObservableObject {
 
     // MARK: - Navigation
 
-    func goToBike() {
-        board.isPaused = true
-        board.tool = .none
-        bike.enter()
-        screen = .bike
-    }
-
-    func leaveBike() {
-        bike.leave()
-        board.isPaused = false
-        goToMenu()
-    }
-
     func goToMenu() {
-        shareNewDrawingWithBike()
         targets = []
         board.hideGuide()
         board.tool = .none
@@ -144,16 +124,11 @@ final class GameModel: ObservableObject {
 
     func finishLevel() {
         let figure = currentFigure
-        let oldStars = progress[figure.id] ?? 0
         let allStrokes = strokes + Array(activeStrokes.values)
         let outcome = TraceScoring.score(targets: targets, strokes: allStrokes, tolerance: TraceScoring.tolerance)
         progress = Progress.mergeBest(progress, id: figure.id, stars: outcome.stars)
         defaults.set(Progress.encode(progress), forKey: Key.progress)
         result = outcome
-        starReward = Shop.starReward(oldStars: oldStars, newStars: outcome.stars)
-        bike.award(coins: starReward)
-        hasNewDrawing = true
-        shareNewDrawingWithBike()
         board.tool = .none
         if outcome.stars == 0 { sound.playNextFart() }
         if outcome.stars == 3 { sound.playFanfare() }
@@ -209,7 +184,6 @@ final class GameModel: ObservableObject {
             hapticDistance = 0
             haptic.impactOccurred(intensity: 0.4)
         }
-        if screen == .free { hasNewDrawing = true }
         guard screen == .trace else { return }
         let start = unit(from)
         let end = unit(to)
@@ -234,13 +208,6 @@ final class GameModel: ObservableObject {
         }
     }
 
-    /// The picture the player just made goes up on the billboards along the bike road.
-    private func shareNewDrawingWithBike() {
-        guard hasNewDrawing, let image = board.snapshot() else { return }
-        hasNewDrawing = false
-        bike.usePoster(image)
-    }
-
     private func unit(_ point: CGPoint) -> Point {
         let box = board.figureBox
         return Point(x: Double((point.x - box.minX) / box.width), y: Double((point.y - box.minY) / box.height))
@@ -261,13 +228,7 @@ final class GameModel: ObservableObject {
         guard let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--demo=") }) else { return }
         sound.isMuted = true
         progress = ["smile": 3, "heart": 2, "house": 1]
-        let demo = String(argument.dropFirst("--demo=".count))
-        if demo.hasPrefix("bike") || demo == "garage" {
-            goToBike()
-            bike.applyDemo(demo)
-            return
-        }
-        switch demo {
+        switch argument.dropFirst("--demo=".count) {
         case "levels":
             goToLevels()
         case "free":

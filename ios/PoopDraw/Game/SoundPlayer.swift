@@ -12,7 +12,6 @@ final class SoundPlayer {
     private let effects = AVAudioPlayerNode()
     private var plopBuffer: AVAudioPCMBuffer?
     private var fanfareBuffer: AVAudioPCMBuffer?
-    private var coinBuffer: AVAudioPCMBuffer?
     private var fartPlayers: [String: AVAudioPlayer] = [:]
     private var loadedFarts: [String] = []
     private var fartBag = SoundBag(count: 0)
@@ -21,14 +20,11 @@ final class SoundPlayer {
     // Read on the audio thread, written here. Raw memory keeps the render callback free of runtime checks.
     private let squelchGain = UnsafeMutablePointer<Float>.allocate(capacity: 1)
     private let squelchFrequency = UnsafeMutablePointer<Float>.allocate(capacity: 1)
-    private let engineLevel = UnsafeMutablePointer<Float>.allocate(capacity: 1)
-    private let engineRev = UnsafeMutablePointer<Float>.allocate(capacity: 1)
 
     var isMuted: Bool {
         didSet {
             if isMuted {
                 squelchGain.pointee = 0
-                engineLevel.pointee = 0
                 fartPlayers.values.forEach { $0.stop() }
                 effects.stop()
             }
@@ -39,8 +35,6 @@ final class SoundPlayer {
         isMuted = muted
         squelchGain.initialize(to: 0)
         squelchFrequency.initialize(to: 420)
-        engineLevel.initialize(to: 0)
-        engineRev.initialize(to: 0)
         configureSession()
         loadFarts()
         configureEngine()
@@ -53,8 +47,6 @@ final class SoundPlayer {
         engine.stop()
         squelchGain.deallocate()
         squelchFrequency.deallocate()
-        engineLevel.deallocate()
-        engineRev.deallocate()
     }
 
     // MARK: - Playing
@@ -71,16 +63,6 @@ final class SoundPlayer {
 
     func playFanfare() {
         play(buffer: fanfareBuffer)
-    }
-
-    func playCoin() {
-        play(buffer: coinBuffer)
-    }
-
-    /// `level` 0 silences the engine; `rev` runs from 0 to 1 with the bike's speed.
-    func setEngine(level: Float, rev: Float) {
-        engineLevel.pointee = isMuted ? 0 : level
-        engineRev.pointee = rev
     }
 
     /// `speed` is finger speed in points per second; 0 silences the squelch.
@@ -145,16 +127,12 @@ final class SoundPlayer {
         guard let mono = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) else { return }
 
         let squelch = Self.makeSquelchNode(sampleRate: rate, gain: squelchGain, frequency: squelchFrequency)
-        let motor = Self.makeEngineNode(sampleRate: rate, level: engineLevel, rev: engineRev)
-        engine.attach(motor)
-        engine.connect(motor, to: engine.mainMixerNode, format: mono)
         engine.attach(squelch)
         engine.attach(effects)
         engine.connect(squelch, to: engine.mainMixerNode, format: mono)
         engine.connect(effects, to: engine.mainMixerNode, format: mono)
         plopBuffer = Self.makeBuffer(Synth.plop(sampleRate: rate), format: mono)
         fanfareBuffer = Self.makeBuffer(Synth.fanfare(sampleRate: rate), format: mono)
-        coinBuffer = Self.makeBuffer(Synth.coin(sampleRate: rate), format: mono)
     }
 
     private static func makeSquelchNode(
@@ -171,24 +149,6 @@ final class SoundPlayer {
                 count: Int(frameCount)
             )
             generator.fill(output, gain: gain.pointee, frequency: frequency.pointee)
-            return noErr
-        }
-    }
-
-    private static func makeEngineNode(
-        sampleRate: Double,
-        level: UnsafeMutablePointer<Float>,
-        rev: UnsafeMutablePointer<Float>
-    ) -> AVAudioSourceNode {
-        var generator = EngineGenerator(sampleRate: sampleRate)
-        return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
-            let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            guard let first = buffers.first, let data = first.mData else { return noErr }
-            let output = UnsafeMutableBufferPointer(
-                start: data.assumingMemoryBound(to: Float.self),
-                count: Int(frameCount)
-            )
-            generator.fill(output, level: level.pointee, rev: rev.pointee)
             return noErr
         }
     }

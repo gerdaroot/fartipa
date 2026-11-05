@@ -1,4 +1,4 @@
-name: Build unsigned IPA
+name: Build unsigned IPAs
 
 on:
   push:
@@ -8,10 +8,14 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Test the game core
-        run: swift test
+      - name: Test the game cores
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee test.log
       - name: Check that iOS audio can decode every sound
         run: |
           for file in ios/PoopDraw/Sounds/*; do
@@ -20,27 +24,45 @@ jobs:
           done
       - run: brew install xcodegen
       - run: xcodegen generate
-      - name: Build without signing
+      - name: Build Krutoy Biker without signing
+        run: bash scripts/xcbuild.sh KrutoyBiker Release -sdk iphoneos
+      - name: Build Poop Draw without signing
+        run: bash scripts/xcbuild.sh PoopDraw Release -sdk iphoneos
+      - name: Package IPAs
         run: |
-          xcodebuild build \
-            -project PoopDraw.xcodeproj \
-            -scheme PoopDraw \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
-      - name: Package IPA
-        run: |
-          mkdir Payload
-          cp -R build/Build/Products/Release-iphoneos/PoopDraw.app Payload/
-          test -f Payload/PoopDraw.app/long-fart.mp3
-          test -f Payload/PoopDraw.app/hard-10.m4a
-          zip -qr PoopDraw.ipa Payload
+          for app in KrutoyBiker PoopDraw; do
+            rm -rf Payload
+            mkdir Payload
+            cp -R "build/Build/Products/Release-iphoneos/$app.app" Payload/
+            test -f "Payload/$app.app/long-fart.mp3"
+            test -f "Payload/$app.app/hard-10.m4a"
+            zip -qr "$app.ipa" Payload
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KrutoyBiker-ipa
+          path: KrutoyBiker.ipa
       - uses: actions/upload-artifact@v4
         with:
           name: PoopDraw-ipa
           path: PoopDraw.ipa
+      - name: Publish errors to their own branch
+        if: failure()
+        env:
+          PUSH_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}
+        run: |
+          report="$RUNNER_TEMP/report"
+          mkdir -p "$report"
+          touch build-errors.txt test.log
+          cp build-errors.txt "$report/build-errors.txt"
+          grep -E "error:|failed|XCTAssert" test.log | head -200 > "$report/test-errors.txt" || true
+          cd "$report"
+          git init -q -b build-errors
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "chore: errors for ${GITHUB_SHA}"
+          git push -f "$PUSH_URL" build-errors
 
   screenshots:
     runs-on: macos-latest
@@ -51,19 +73,14 @@ jobs:
       - run: brew install xcodegen
       - run: xcodegen generate
       - name: Build for the simulator
-        run: |
-          xcodebuild build \
-            -project PoopDraw.xcodeproj \
-            -scheme PoopDraw \
-            -configuration Debug \
-            -destination "generic/platform=iOS Simulator" \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO
+        run: bash scripts/xcbuild.sh KrutoyBiker Debug -destination "generic/platform=iOS Simulator"
       - name: Take screenshots
         run: |
           bash scripts/simulator-screenshots.sh \
-            build/Build/Products/Debug-iphonesimulator/PoopDraw.app \
-            "$RUNNER_TEMP/screens"
+            build/Build/Products/Debug-iphonesimulator/KrutoyBiker.app \
+            "$RUNNER_TEMP/screens" \
+            com.krutoybiker.app \
+            hub ride garage over
       - name: Publish screenshots to their own branch
         env:
           PUSH_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}

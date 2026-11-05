@@ -56,21 +56,20 @@ final class BikeGame: NSObject, ObservableObject {
         world.dressBike(bikeId: profile.bikeId, riderId: profile.riderId)
     }
 
-    // MARK: - Entering and leaving
+    // MARK: - Launch
 
-    func enter() {
+    func launch() {
+        guard displayLink == nil else { return }
         isActive = true
         phase = .hub
         world.setCamera(.chase)
-        world.dressBike(bikeId: profile.bikeId, riderId: profile.riderId)
         startLink()
-    }
-
-    func leave() {
-        isActive = false
-        stopLink()
-        sound.setEngine(level: 0, rev: 0)
-        run = nil
+        #if DEBUG
+        if let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--demo=") }) {
+            sound.isMuted = true
+            applyDemo(String(argument.dropFirst("--demo=".count)))
+        }
+        #endif
     }
 
     private func startLink() {
@@ -78,11 +77,6 @@ final class BikeGame: NSObject, ObservableObject {
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
         link.add(to: .main, forMode: .common)
         displayLink = link
-    }
-
-    private func stopLink() {
-        displayLink?.invalidate()
-        displayLink = nil
     }
 
     /// Called when the app goes to the background.
@@ -270,7 +264,7 @@ final class BikeGame: NSObject, ObservableObject {
         rich.earn(777)
         save(rich)
         switch name {
-        case "bike-run":
+        case "ride":
             startRide()
             var ride = BikeRun(seed: 7)
             for _ in 0..<(60 * 25) { _ = ride.update(dt: 1.0 / 60, targetX: ride.autopilotTarget()) }
@@ -281,7 +275,7 @@ final class BikeGame: NSObject, ObservableObject {
                 if let item = Shop.item(id: id) { tapShopItem(item) }
             }
             openGarage()
-        case "bike-over":
+        case "over":
             startRide()
             var ride = BikeRun(seed: 3)
             while !ride.isOver { _ = ride.update(dt: 1.0 / 60, targetX: 0) }

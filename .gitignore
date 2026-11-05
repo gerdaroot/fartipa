@@ -5,3 +5,7 @@ build/
 Payload/
 prototype-web/tests/shots/
 ios/PoopDraw/Info.plist
+ios/Biker/Info.plist
+build-*.log
+build-errors.txt
+test.log

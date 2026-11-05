@@ -6,6 +6,8 @@ let package = Package(
     name: "PoopCore",
     targets: [
         .target(name: "PoopCore", path: "ios/PoopDraw/Core"),
+        .target(name: "BikerCore", path: "ios/Biker/Core"),
+        .testTarget(name: "BikerCoreTests", dependencies: ["BikerCore"], path: "Tests/BikerCoreTests"),
         .testTarget(name: "PoopCoreTests", dependencies: ["PoopCore"], path: "Tests/PoopCoreTests"),
     ]
 )

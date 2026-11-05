@@ -10,15 +10,10 @@ struct MenuScreen: View {
                 SoundButton(model: model)
             }
             Spacer()
-            Button(action: model.goToBike) {
-                Label("Говнобайкер 3Д", systemImage: "bolt.fill")
-            }
-            .buttonStyle(ChunkyButtonStyle(kind: .gold, height: 64, fontSize: 22))
-
             Button(action: model.startFreeDrawing) {
                 Label("Рисовать", systemImage: "hand.draw.fill")
             }
-            .buttonStyle(ChunkyButtonStyle(height: 60, fontSize: 18))
+            .buttonStyle(ChunkyButtonStyle(kind: .gold, height: 64, fontSize: 22))
 
             Button(action: model.goToLevels) {
                 HStack(spacing: 10) {

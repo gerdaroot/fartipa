@@ -1,6 +1,6 @@
 import XCTest
 import Foundation
-@testable import PoopCore
+@testable import BikerCore
 
 final class BikeRunTests: XCTestCase {
     private let frame = 1.0 / 60

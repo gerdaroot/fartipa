@@ -5,6 +5,39 @@ options:
     iOS: "16.0"
   createIntermediateGroups: true
 targets:
+  KrutoyBiker:
+    type: application
+    platform: iOS
+    sources:
+      - path: ios/Biker
+      # The road surface is the same computed pile as in Poop Draw, and the farts are the same recordings.
+      - path: ios/PoopDraw/Core/HeightField.swift
+      - path: ios/PoopDraw/Sounds
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.krutoybiker.app
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        SWIFT_OPTIMIZATION_LEVEL: "-O"
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: ios/Biker/Info.plist
+      properties:
+        CFBundleDisplayName: Пиздец крутой байкер 3Д
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSHumanReadableCopyright: "Авторы: gerda, okurok51, yamoo"
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
   PoopDraw:
     type: application
     platform: iOS
