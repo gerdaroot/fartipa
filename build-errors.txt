@@ -1,0 +1,2 @@
+** BUILD FAILED **
+error: Multiple commands produce '/Users/runner/work/fartipa/fartipa/build/Build/Products/Release-iphoneos/KrutoyBiker.app/CREDITS.txt'
